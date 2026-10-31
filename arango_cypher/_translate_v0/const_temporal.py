@@ -196,10 +196,14 @@ def is_clock_difference(name: str, args: list[str]) -> bool:
     same source (``x()`` is ``x.statement()``); ``realtime()`` reads the clock
     at each call, and a time zone argument is left to the run-time path.
     """
-    if not name.startswith("duration.") or name.removeprefix("duration.") not in _BETWEEN_UNITS or len(args) != 2:
+    if (
+        not name.startswith("duration.")
+        or name.removeprefix("duration.") not in _BETWEEN_UNITS
+        or len(args) != 2
+    ):
         return False
-    readings = [_CLOCK_CALL.match(re.sub(r"\s+", "", a).lower()) for a in args]
-    if readings[0] is None or readings[1] is None:
+    readings = [m for a in args if (m := _CLOCK_CALL.match(re.sub(r"\s+", "", a).lower())) is not None]
+    if len(readings) != 2:
         return False
     kinds = {(m.group(1), m.group(2) or "statement") for m in readings}
     return len(kinds) == 1
