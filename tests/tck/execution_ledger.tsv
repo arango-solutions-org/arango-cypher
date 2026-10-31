@@ -112,7 +112,7 @@ passed	clauses/create/Create3/[7] WITH-CREATE: Nodes are not created when aliase
 passed	clauses/create/Create3/[8] WITH-CREATE: Only a single node is created when an alias is applied to a variable name multiple times
 passed	clauses/create/Create3/[9] WITH-CREATE: A bound node should be recognized after projection with WITH + WITH
 passed	clauses/create/Create4/[1] Generate the movie graph
-execution_failure	clauses/create/Create4/[2] Many CREATE clauses
+passed	clauses/create/Create4/[2] Many CREATE clauses
 passed	clauses/create/Create5/[1] Create a pattern with multiple hops
 passed	clauses/create/Create5/[2] Create a pattern with multiple hops in the reverse direction
 passed	clauses/create/Create5/[3] Create a pattern with multiple hops in varying directions
@@ -619,7 +619,7 @@ correct_rejection	clauses/merge/Merge3/[5] Fail when using undefined variable in
 passed	clauses/merge/Merge4/[1] Merge should be able to set labels on match and on create
 passed	clauses/merge/Merge4/[2] Merge should be able to use properties of bound node in ON MATCH and ON CREATE
 passed	clauses/merge/Merge5/[10] Merge should bind a path
-translation_failure	clauses/merge/Merge5/[11] Use outgoing direction when unspecified
+passed	clauses/merge/Merge5/[11] Use outgoing direction when unspecified
 passed	clauses/merge/Merge5/[12] Match outgoing relationship when direction unspecified
 execution_failure	clauses/merge/Merge5/[13] Match both incoming and outgoing relationships when direction unspecified
 passed	clauses/merge/Merge5/[14] Using list properties via variable

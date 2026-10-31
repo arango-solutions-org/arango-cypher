@@ -619,7 +619,7 @@ correct_rejection	clauses/merge/Merge3/[5] Fail when using undefined variable in
 translatable	clauses/merge/Merge4/[1] Merge should be able to set labels on match and on create
 translatable	clauses/merge/Merge4/[2] Merge should be able to use properties of bound node in ON MATCH and ON CREATE
 translatable	clauses/merge/Merge5/[10] Merge should bind a path
-translate_fail	clauses/merge/Merge5/[11] Use outgoing direction when unspecified
+translatable	clauses/merge/Merge5/[11] Use outgoing direction when unspecified
 translatable	clauses/merge/Merge5/[12] Match outgoing relationship when direction unspecified
 translatable	clauses/merge/Merge5/[13] Match both incoming and outgoing relationships when direction unspecified
 translatable	clauses/merge/Merge5/[14] Using list properties via variable
