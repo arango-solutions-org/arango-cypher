@@ -189,7 +189,7 @@ passed	clauses/match-where/MatchWhere1/[7] Filter relationship with relationship
 passed	clauses/match-where/MatchWhere1/[8] Filter relationship with property predicate on multi variables with multiple bindings
 passed	clauses/match-where/MatchWhere1/[9] Filter relationship with a parameter in a property predicate on multi variables with one binding
 passed	clauses/match-where/MatchWhere2/[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
-translation_failure	clauses/match-where/MatchWhere2/[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings
+passed	clauses/match-where/MatchWhere2/[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings
 passed	clauses/match-where/MatchWhere3/[1] Join between node identities
 passed	clauses/match-where/MatchWhere3/[2] Join between node properties of disconnected nodes
 passed	clauses/match-where/MatchWhere3/[3] Join between node properties of adjacent nodes
@@ -200,7 +200,7 @@ passed	clauses/match-where/MatchWhere5/[2] Filter out on null if the AND'd predi
 passed	clauses/match-where/MatchWhere5/[3] Filter out on null if the AND'd predicate evaluates to true
 passed	clauses/match-where/MatchWhere5/[4] Do not filter out on null if the OR'd predicate evaluates to true
 passed	clauses/match-where/MatchWhere6/[1] Filter node with node label predicate on multi variables with multiple bindings after MATCH and OPTIONAL MATCH
-translation_failure	clauses/match-where/MatchWhere6/[2] Filter node with false node label predicate after OPTIONAL MATCH
+passed	clauses/match-where/MatchWhere6/[2] Filter node with false node label predicate after OPTIONAL MATCH
 passed	clauses/match-where/MatchWhere6/[3] Filter node with property predicate on multi variables with multiple bindings after OPTIONAL MATCH
 passed	clauses/match-where/MatchWhere6/[4] Do not fail when predicates on optionally matched and missed nodes are invalid
 passed	clauses/match-where/MatchWhere6/[5] Matching and optionally matching with unbound nodes and equality predicate in reverse direction
@@ -395,7 +395,7 @@ passed	clauses/match/Match3/[21] Three bound nodes pointing to the same node wit
 passed	clauses/match/Match3/[22] Returning bound nodes that are not part of the pattern
 passed	clauses/match/Match3/[23] Matching disconnected patterns
 passed	clauses/match/Match3/[24] Matching twice with duplicate relationship types on same relationship
-execution_failure	clauses/match/Match3/[25] Matching twice with an additional node label
+passed	clauses/match/Match3/[25] Matching twice with an additional node label
 passed	clauses/match/Match3/[26] Matching twice with a duplicate predicate
 passed	clauses/match/Match3/[27] Matching from null nodes should return no results owing to finding no matches
 passed	clauses/match/Match3/[28] Matching from null nodes should return no results owing to matches being filtered out
@@ -410,19 +410,19 @@ passed	clauses/match/Match3/[7] Matching nodes with many labels
 passed	clauses/match/Match3/[8] Matching using relationship predicate with multiples of the same type
 passed	clauses/match/Match3/[9] Get related to related to
 correct_rejection	clauses/match/Match4/[10] Fail on negative bound
-execution_failure	clauses/match/Match4/[1] Handling fixed-length variable length pattern
+passed	clauses/match/Match4/[1] Handling fixed-length variable length pattern
 passed	clauses/match/Match4/[2] Simple variable length pattern
 passed	clauses/match/Match4/[3] Zero-length variable length pattern in the middle of the pattern
 execution_failure	clauses/match/Match4/[4] Matching longer variable length paths
-execution_failure	clauses/match/Match4/[5] Matching variable length pattern with property predicate
+passed	clauses/match/Match4/[5] Matching variable length pattern with property predicate
 execution_failure	clauses/match/Match4/[6] Matching variable length patterns from a bound node
 translation_failure	clauses/match/Match4/[7] Matching variable length patterns including a bound relationship
 execution_failure	clauses/match/Match4/[8] Matching relationships into a list and matching variable length using the list
 correct_rejection	clauses/match/Match4/[9] Fail when asterisk operator is missing
 passed	clauses/match/Match5/[10] Handling symmetrically bounded variable length match, bounds are two
-translation_failure	clauses/match/Match5/[11] Handling upper and lower bounded variable length match, empty interval 1
-translation_failure	clauses/match/Match5/[12] Handling upper and lower bounded variable length match, empty interval 2
-execution_failure	clauses/match/Match5/[13] Handling upper bounded variable length match, empty interval
+passed	clauses/match/Match5/[11] Handling upper and lower bounded variable length match, empty interval 1
+passed	clauses/match/Match5/[12] Handling upper and lower bounded variable length match, empty interval 2
+passed	clauses/match/Match5/[13] Handling upper bounded variable length match, empty interval
 passed	clauses/match/Match5/[14] Handling upper bounded variable length match 1
 passed	clauses/match/Match5/[15] Handling upper bounded variable length match 2
 passed	clauses/match/Match5/[16] Handling lower bounded variable length match 1
@@ -449,17 +449,17 @@ passed	clauses/match/Match5/[7] Handling upper and lower bounded variable length
 passed	clauses/match/Match5/[8] Handling symmetrically bounded variable length match, bounds are zero
 passed	clauses/match/Match5/[9] Handling symmetrically bounded variable length match, bounds are one
 passed	clauses/match/Match6/[10] Named path with alternating directed/undirected relationships
-execution_failure	clauses/match/Match6/[11] Named path with multiple alternating directed/undirected relationships
+passed	clauses/match/Match6/[11] Named path with multiple alternating directed/undirected relationships
 passed	clauses/match/Match6/[12] Matching path with multiple bidirectional relationships
 passed	clauses/match/Match6/[13] Matching path with both directions should respect other directions
-execution_failure	clauses/match/Match6/[14] Named path with undirected fixed variable length pattern
-execution_failure	clauses/match/Match6/[15] Variable-length named path
-execution_failure	clauses/match/Match6/[16] Return a var length path
-execution_failure	clauses/match/Match6/[17] Return a named var length path of length zero
+passed	clauses/match/Match6/[14] Named path with undirected fixed variable length pattern
+passed	clauses/match/Match6/[15] Variable-length named path
+passed	clauses/match/Match6/[16] Return a var length path
+passed	clauses/match/Match6/[17] Return a named var length path of length zero
 passed	clauses/match/Match6/[18] Undirected named path
-execution_failure	clauses/match/Match6/[19] Variable length relationship without lower bound
+passed	clauses/match/Match6/[19] Variable length relationship without lower bound
 passed	clauses/match/Match6/[1] Zero-length named path
-execution_failure	clauses/match/Match6/[20] Variable length relationship without bounds
+passed	clauses/match/Match6/[20] Variable length relationship without bounds
 correct_rejection	clauses/match/Match6/[21] Fail when a node has the same variable in a preceding MATCH [pattern=()-[]-()-[]-(p)]
 correct_rejection	clauses/match/Match6/[21] Fail when a node has the same variable in a preceding MATCH [pattern=()-[]-(p), ()]
 correct_rejection	clauses/match/Match6/[21] Fail when a node has the same variable in a preceding MATCH [pattern=()-[]-(p)-[]-()]
@@ -579,10 +579,10 @@ passed	clauses/match/Match7/[9] Longer pattern with bound nodes
 passed	clauses/match/Match8/[1] Pattern independent of bound variables results in cross product
 translation_failure	clauses/match/Match8/[2] Counting rows after MATCH, MERGE, OPTIONAL MATCH
 passed	clauses/match/Match8/[3] Matching and disregarding output, then matching again
-execution_failure	clauses/match/Match9/[1] Variable length relationship variables are lists of relationships
-execution_failure	clauses/match/Match9/[2] Return relationships by collecting them as a list - directed, one way
-execution_failure	clauses/match/Match9/[3] Return relationships by collecting them as a list - undirected, starting from two extremes
-execution_failure	clauses/match/Match9/[4] Return relationships by collecting them as a list - undirected, starting from one extreme
+passed	clauses/match/Match9/[1] Variable length relationship variables are lists of relationships
+passed	clauses/match/Match9/[2] Return relationships by collecting them as a list - directed, one way
+passed	clauses/match/Match9/[3] Return relationships by collecting them as a list - undirected, starting from two extremes
+passed	clauses/match/Match9/[4] Return relationships by collecting them as a list - undirected, starting from one extreme
 passed	clauses/match/Match9/[5] Variable length pattern with label predicate on both sides
 execution_failure	clauses/match/Match9/[6] Matching relationships into a list and matching variable length using the list, with bound nodes
 passed	clauses/match/Match9/[7] Matching relationships into a list and matching variable length using the list, with bound nodes, wrong direction
@@ -710,7 +710,7 @@ passed	clauses/return-orderby/ReturnOrderBy1/[8] ORDER BY DESC should order floa
 passed	clauses/return-orderby/ReturnOrderBy1/[9] ORDER BY should order lists in the expected order
 passed	clauses/return-orderby/ReturnOrderBy2/[10] Returned columns do not change from using ORDER BY
 passed	clauses/return-orderby/ReturnOrderBy2/[11] Aggregates ordered by arithmetics
-execution_failure	clauses/return-orderby/ReturnOrderBy2/[12] Aggregation of named paths
+passed	clauses/return-orderby/ReturnOrderBy2/[12] Aggregation of named paths
 passed	clauses/return-orderby/ReturnOrderBy2/[13] Fail when sorting on variable removed by DISTINCT
 correct_rejection	clauses/return-orderby/ReturnOrderBy2/[14] Fail on aggregation in ORDER BY after RETURN
 passed	clauses/return-orderby/ReturnOrderBy2/[1] ORDER BY should return results in ascending order
@@ -735,7 +735,7 @@ passed	clauses/return-skip-limit/ReturnSkipLimit1/[10] Fail when using non-const
 correct_rejection	clauses/return-skip-limit/ReturnSkipLimit1/[11] Fail when using negative value in SKIP
 passed	clauses/return-skip-limit/ReturnSkipLimit1/[1] Start the result from the second row
 passed	clauses/return-skip-limit/ReturnSkipLimit1/[2] Start the result from the second row by param
-execution_failure	clauses/return-skip-limit/ReturnSkipLimit1/[3] SKIP with an expression that does not depend on variables
+translation_failure	clauses/return-skip-limit/ReturnSkipLimit1/[3] SKIP with an expression that does not depend on variables
 passed	clauses/return-skip-limit/ReturnSkipLimit1/[4] Accept skip zero
 passed	clauses/return-skip-limit/ReturnSkipLimit1/[5] SKIP with an expression that depends on variables should fail
 passed	clauses/return-skip-limit/ReturnSkipLimit1/[6] Negative parameter for SKIP should fail
@@ -891,9 +891,9 @@ correct_rejection	clauses/union/Union2/[5] Failing when UNION ALL has different 
 correct_rejection	clauses/union/Union3/[1] Failing when mixing UNION and UNION ALL
 correct_rejection	clauses/union/Union3/[2] Failing when mixing UNION ALL and UNION
 passed	clauses/unwind/Unwind1/[10] Unwinding list with duplicates
-execution_failure	clauses/unwind/Unwind1/[11] Unwind does not prune context
+passed	clauses/unwind/Unwind1/[11] Unwind does not prune context
 passed	clauses/unwind/Unwind1/[12] Unwind does not remove variables from scope
-execution_failure	clauses/unwind/Unwind1/[13] Multiple unwinds after each other
+passed	clauses/unwind/Unwind1/[13] Multiple unwinds after each other
 passed	clauses/unwind/Unwind1/[14] Unwind with merge
 passed	clauses/unwind/Unwind1/[1] Unwinding a list
 passed	clauses/unwind/Unwind1/[2] Unwinding a range
@@ -903,7 +903,7 @@ passed	clauses/unwind/Unwind1/[5] Unwinding a collected expression
 translation_failure	clauses/unwind/Unwind1/[6] Creating nodes from an unwound parameter list
 passed	clauses/unwind/Unwind1/[7] Double unwinding a list of lists
 passed	clauses/unwind/Unwind1/[8] Unwinding the empty list
-execution_failure	clauses/unwind/Unwind1/[9] Unwinding null
+passed	clauses/unwind/Unwind1/[9] Unwinding null
 passed	clauses/with-orderBy/WithOrderBy1/[10] Sort lists in descending order
 passed	clauses/with-orderBy/WithOrderBy1/[11] Sort dates in ascending order
 passed	clauses/with-orderBy/WithOrderBy1/[12] Sort dates in descending order
@@ -916,7 +916,7 @@ passed	clauses/with-orderBy/WithOrderBy1/[18] Sort local date times in descendin
 passed	clauses/with-orderBy/WithOrderBy1/[19] Sort date times in ascending order
 passed	clauses/with-orderBy/WithOrderBy1/[1] Sort booleans in ascending order
 passed	clauses/with-orderBy/WithOrderBy1/[20] Sort date times in descending order
-execution_failure	clauses/with-orderBy/WithOrderBy1/[21] Sort distinct types in ascending order
+passed	clauses/with-orderBy/WithOrderBy1/[21] Sort distinct types in ascending order
 execution_failure	clauses/with-orderBy/WithOrderBy1/[22] Sort distinct types in descending order
 passed	clauses/with-orderBy/WithOrderBy1/[23] Sort by a boolean variable projected from a node property in ascending order [sort=bool ASCENDING]
 passed	clauses/with-orderBy/WithOrderBy1/[23] Sort by a boolean variable projected from a node property in ascending order [sort=bool ASC]
@@ -1206,11 +1206,11 @@ passed	clauses/with-skip-limit/WithSkipLimit3/[1] Get rows in the middle
 passed	clauses/with-skip-limit/WithSkipLimit3/[2] Get rows in the middle by param
 passed	clauses/with-skip-limit/WithSkipLimit3/[3] Limiting amount of rows when there are fewer left than the LIMIT argument
 passed	clauses/with-where/WithWhere1/[1] Filter node with property predicate on a single variable with multiple bindings
-execution_failure	clauses/with-where/WithWhere1/[2] Filter node with property predicate on a single variable with multiple distinct bindings
+passed	clauses/with-where/WithWhere1/[2] Filter node with property predicate on a single variable with multiple distinct bindings
 passed	clauses/with-where/WithWhere1/[3] Filter for an unbound relationship variable
 passed	clauses/with-where/WithWhere1/[4] Filter for an unbound node variable
 passed	clauses/with-where/WithWhere2/[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
-translation_failure	clauses/with-where/WithWhere2/[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings
+passed	clauses/with-where/WithWhere2/[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings
 passed	clauses/with-where/WithWhere3/[1] Join between node identities
 passed	clauses/with-where/WithWhere3/[2] Join between node properties of disconnected nodes
 passed	clauses/with-where/WithWhere3/[3] Join between node properties of adjacent nodes
@@ -1531,7 +1531,7 @@ passed	expressions/existentialSubqueries/ExistentialSubquery2/[1] Full existenti
 passed	expressions/existentialSubqueries/ExistentialSubquery2/[2] Full existential subquery with aggregation
 correct_rejection	expressions/existentialSubqueries/ExistentialSubquery2/[3] Full existential subquery with update clause should fail
 passed	expressions/existentialSubqueries/ExistentialSubquery3/[1] Nested simple existential subquery
-translation_failure	expressions/existentialSubqueries/ExistentialSubquery3/[2] Nested full existential subquery
+passed	expressions/existentialSubqueries/ExistentialSubquery3/[2] Nested full existential subquery
 passed	expressions/existentialSubqueries/ExistentialSubquery3/[3] Nested full existential subquery with pattern predicate
 passed	expressions/graph/Graph3/[1] Creating node without label
 passed	expressions/graph/Graph3/[2] Creating node with two labels
@@ -1561,7 +1561,7 @@ passed	expressions/graph/Graph5/[4] Conjunctive labels expression on nodes with 
 passed	expressions/graph/Graph5/[4] Conjunctive labels expression on nodes with varying order and repeating labels [labelexp=:C:A, result=(:A:C)]
 passed	expressions/graph/Graph5/[4] Conjunctive labels expression on nodes with varying order and repeating labels [labelexp=:C:A:A:C, result=(:A:C)]
 passed	expressions/graph/Graph5/[4] Conjunctive labels expression on nodes with varying order and repeating labels [labelexp=:C:C:A, result=(:A:C)]
-translation_failure	expressions/graph/Graph5/[5] Label expression on null
+execution_failure	expressions/graph/Graph5/[5] Label expression on null
 passed	expressions/graph/Graph6/[1] Statically access a property of a non-null node
 passed	expressions/graph/Graph6/[2] Statically access a property of a optional non-null node
 passed	expressions/graph/Graph6/[3] Statically access a property of a null node
@@ -1579,14 +1579,14 @@ correct_rejection	expressions/graph/Graph6/[9] Fail when performing property acc
 passed	expressions/graph/Graph7/[1] Execute n['name'] in read queries
 passed	expressions/graph/Graph7/[2] Execute n['name'] in update queries
 passed	expressions/graph/Graph7/[3] Use dynamic property lookup based on parameters when there is lhs type information
-execution_failure	expressions/graph/Graph8/[1] Using `keys()` on a single node, non-empty result
-execution_failure	expressions/graph/Graph8/[2] Using `keys()` on multiple nodes, non-empty result
-execution_failure	expressions/graph/Graph8/[3] Using `keys()` on a single node, empty result
-execution_failure	expressions/graph/Graph8/[4] Using `keys()` on an optionally matched node
-execution_failure	expressions/graph/Graph8/[5] Using `keys()` on a relationship, non-empty result
-execution_failure	expressions/graph/Graph8/[6] Using `keys()` on a relationship, empty result
-execution_failure	expressions/graph/Graph8/[7] Using `keys()` on an optionally matched relationship
-execution_failure	expressions/graph/Graph8/[8] Using `keys()` and `IN` to check property existence
+passed	expressions/graph/Graph8/[1] Using `keys()` on a single node, non-empty result
+passed	expressions/graph/Graph8/[2] Using `keys()` on multiple nodes, non-empty result
+passed	expressions/graph/Graph8/[3] Using `keys()` on a single node, empty result
+passed	expressions/graph/Graph8/[4] Using `keys()` on an optionally matched node
+passed	expressions/graph/Graph8/[5] Using `keys()` on a relationship, non-empty result
+passed	expressions/graph/Graph8/[6] Using `keys()` on a relationship, empty result
+passed	expressions/graph/Graph8/[7] Using `keys()` on an optionally matched relationship
+passed	expressions/graph/Graph8/[8] Using `keys()` and `IN` to check property existence
 passed	expressions/graph/Graph9/[1] `properties()` on a node
 passed	expressions/graph/Graph9/[2] `properties()` on a relationship
 passed	expressions/graph/Graph9/[3] `properties()` on null
@@ -1603,20 +1603,20 @@ correct_rejection	expressions/list/List1/[6] Fail when indexing a non-list #Exam
 correct_rejection	expressions/list/List1/[6] Fail when indexing a non-list #Example: <exampleName> [expr=123, exampleName=integer]
 correct_rejection	expressions/list/List1/[6] Fail when indexing a non-list #Example: <exampleName> [expr=4.7, exampleName=float]
 correct_rejection	expressions/list/List1/[6] Fail when indexing a non-list #Example: <exampleName> [expr=true, exampleName=boolean]
-execution_failure	expressions/list/List1/[7] Fail when indexing a non-list given by a parameter #Example: <exampleName> [expr='1', exampleName=string]
-execution_failure	expressions/list/List1/[7] Fail when indexing a non-list given by a parameter #Example: <exampleName> [expr=123, exampleName=integer]
-execution_failure	expressions/list/List1/[7] Fail when indexing a non-list given by a parameter #Example: <exampleName> [expr=4.7, exampleName=float]
-execution_failure	expressions/list/List1/[7] Fail when indexing a non-list given by a parameter #Example: <exampleName> [expr=true, exampleName=boolean]
+passed	expressions/list/List1/[7] Fail when indexing a non-list given by a parameter #Example: <exampleName> [expr='1', exampleName=string]
+passed	expressions/list/List1/[7] Fail when indexing a non-list given by a parameter #Example: <exampleName> [expr=123, exampleName=integer]
+passed	expressions/list/List1/[7] Fail when indexing a non-list given by a parameter #Example: <exampleName> [expr=4.7, exampleName=float]
+passed	expressions/list/List1/[7] Fail when indexing a non-list given by a parameter #Example: <exampleName> [expr=true, exampleName=boolean]
 correct_rejection	expressions/list/List1/[8] Fail when indexing with a non-integer #Example: <exampleName> [idx='1', exampleName=string]
 correct_rejection	expressions/list/List1/[8] Fail when indexing with a non-integer #Example: <exampleName> [idx=4.7, exampleName=float]
 correct_rejection	expressions/list/List1/[8] Fail when indexing with a non-integer #Example: <exampleName> [idx=[1], exampleName=list]
 correct_rejection	expressions/list/List1/[8] Fail when indexing with a non-integer #Example: <exampleName> [idx=true, exampleName=boolean]
 correct_rejection	expressions/list/List1/[8] Fail when indexing with a non-integer #Example: <exampleName> [idx={x: 3}, exampleName=map]
-execution_failure	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx='1', exampleName=string]
-execution_failure	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx=4.7, exampleName=float]
-execution_failure	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx=[1], exampleName=list]
-execution_failure	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx=true, exampleName=boolean]
-execution_failure	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx={x: 3}, exampleName=map]
+passed	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx='1', exampleName=string]
+passed	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx=4.7, exampleName=float]
+passed	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx=[1], exampleName=list]
+passed	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx=true, exampleName=boolean]
+passed	expressions/list/List1/[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName> [idx={x: 3}, exampleName=map]
 passed	expressions/list/List11/[1] Create list from `range()` with default step [start=-1, end=0, list=[-1, 0]]
 passed	expressions/list/List11/[1] Create list from `range()` with default step [start=-1, end=1, list=[-1, 0, 1]]
 passed	expressions/list/List11/[1] Create list from `range()` with default step [start=-10, end=-3, list=[-10, -9, -8, -7, -6, -5, -4, -3]]
@@ -1725,7 +1725,7 @@ passed	expressions/list/List5/[16] IN should return true when LHS and RHS contai
 passed	expressions/list/List5/[17] IN should return true when LHS and RHS contain a nested list
 passed	expressions/list/List5/[18] IN should return false when LHS contains a nested list and type mismatch on RHS - singleton version
 passed	expressions/list/List5/[19] IN should return false when LHS contains a nested list and type mismatch on RHS
-execution_failure	expressions/list/List5/[1] IN should work with nested list subscripting
+passed	expressions/list/List5/[1] IN should work with nested list subscripting
 passed	expressions/list/List5/[20] IN should return null if LHS and RHS are null
 passed	expressions/list/List5/[21] IN should return null if LHS and RHS are null - list version
 passed	expressions/list/List5/[22] IN should return null when LHS and RHS both ultimately contain null, even if LHS and RHS are of different types (nested list and flat list)
@@ -1736,7 +1736,7 @@ passed	expressions/list/List5/[26] IN should return true if correct list found d
 passed	expressions/list/List5/[27] IN should return true if correct list found despite null being another element within containing list
 passed	expressions/list/List5/[28] IN should return false if no match can be found, despite nulls
 passed	expressions/list/List5/[29] IN should return null if comparison with null is required, list version
-execution_failure	expressions/list/List5/[2] IN should work with nested literal list subscripting
+passed	expressions/list/List5/[2] IN should work with nested literal list subscripting
 passed	expressions/list/List5/[30] IN should return false if different length lists compared, even if the extra element is null
 passed	expressions/list/List5/[31] IN should return null when comparing two so-called identical lists where one element is null
 passed	expressions/list/List5/[32] IN should return true with previous null match, list version
@@ -1747,7 +1747,7 @@ passed	expressions/list/List5/[36] IN should return false for the empty list if 
 passed	expressions/list/List5/[37] IN should work with an empty list in the presence of other list elements: matching
 passed	expressions/list/List5/[38] IN should work with an empty list in the presence of other list elements: not matching
 passed	expressions/list/List5/[39] IN should work with an empty list when comparing nested lists
-execution_failure	expressions/list/List5/[3] IN should work with list slices
+passed	expressions/list/List5/[3] IN should work with list slices
 passed	expressions/list/List5/[40] IN should return null if comparison with null is required for empty list
 passed	expressions/list/List5/[41] IN should return true when LHS and RHS contain nested list with multiple empty lists
 correct_rejection	expressions/list/List5/[42] Failing when using IN on a non-list literal [invalid='foo']
@@ -1755,7 +1755,7 @@ correct_rejection	expressions/list/List5/[42] Failing when using IN on a non-lis
 correct_rejection	expressions/list/List5/[42] Failing when using IN on a non-list literal [invalid=123]
 correct_rejection	expressions/list/List5/[42] Failing when using IN on a non-list literal [invalid=true]
 correct_rejection	expressions/list/List5/[42] Failing when using IN on a non-list literal [invalid={x: []}]
-execution_failure	expressions/list/List5/[4] IN should work with literal list slices
+passed	expressions/list/List5/[4] IN should work with literal list slices
 passed	expressions/list/List5/[5] IN should return false when matching a number with a string
 passed	expressions/list/List5/[6] IN should return false when matching a number with a string - list version
 passed	expressions/list/List5/[7] IN should return false when types of LHS and RHS don't match - singleton list
@@ -1940,9 +1940,9 @@ passed	expressions/map/Map2/[5] Dynamically access a field is case-sensitive [ma
 passed	expressions/map/Map2/[5] Dynamically access a field is case-sensitive [map={name: 'Mats', nome: 'Pontus'}, key='null', result=null]
 passed	expressions/map/Map2/[5] Dynamically access a field is case-sensitive [map={null: 'Mats', NULL: 'Pontus'}, key='NULL', result='Pontus']
 passed	expressions/map/Map2/[5] Dynamically access a field is case-sensitive [map={null: 'Mats', NULL: 'Pontus'}, key='null', result='Mats']
-execution_failure	expressions/map/Map2/[6] Fail at runtime when attempting to index with an Int into a Map
-execution_failure	expressions/map/Map2/[7] Fail at runtime when trying to index into a map with a non-string
-execution_failure	expressions/map/Map2/[8] Fail at runtime when trying to index something which is not a map
+passed	expressions/map/Map2/[6] Fail at runtime when attempting to index with an Int into a Map
+passed	expressions/map/Map2/[7] Fail at runtime when trying to index into a map with a non-string
+passed	expressions/map/Map2/[8] Fail at runtime when trying to index something which is not a map
 passed	expressions/map/Map3/[1] Using `keys()` on a literal map
 passed	expressions/map/Map3/[2] Using `keys()` on a parameter map
 passed	expressions/map/Map3/[3] Using `keys()` on null map
@@ -1962,7 +1962,7 @@ passed	expressions/mathematical/Mathematical8/[1] Arithmetic precedence test
 passed	expressions/mathematical/Mathematical8/[2] Arithmetic precedence with parenthesis test
 passed	expressions/null/Null1/[1] Property null check on non-null node
 passed	expressions/null/Null1/[2] Property null check on optional non-null node
-execution_failure	expressions/null/Null1/[3] Property null check on null node
+passed	expressions/null/Null1/[3] Property null check on null node
 passed	expressions/null/Null1/[4] A literal null IS null
 passed	expressions/null/Null1/[5] IS NULL on a map [map=null, key=name, result=true]
 passed	expressions/null/Null1/[5] IS NULL on a map [map={name: 'Mats', name2: 'Pontus'}, key=name, result=false]
@@ -1979,7 +1979,7 @@ passed	expressions/null/Null1/[5] IS NULL on a map [map={}, key=name, result=tru
 passed	expressions/null/Null1/[6] IS NULL is case insensitive
 passed	expressions/null/Null2/[1] Property not null check on non-null node
 passed	expressions/null/Null2/[2] Property not null check on optional non-null node
-execution_failure	expressions/null/Null2/[3] Property not null check on null node
+passed	expressions/null/Null2/[3] Property not null check on null node
 passed	expressions/null/Null2/[4] A literal null is not IS NOT null
 passed	expressions/null/Null2/[5] IS NOT NULL on a map [map=null, key=name, result=false]
 passed	expressions/null/Null2/[5] IS NOT NULL on a map [map={name: 'Mats', name2: 'Pontus'}, key=name, result=true]
@@ -1999,16 +1999,16 @@ passed	expressions/null/Null3/[2] It is unknown - i.e. null - if a null is equal
 passed	expressions/null/Null3/[3] It is unknown - i.e. null - if a null is not equal to a null
 passed	expressions/null/Null3/[4] Using null in IN [elt=1, coll=[1, 2, 3, null], result=true]
 passed	expressions/null/Null3/[4] Using null in IN [elt=1, coll=[null, 1], result=true]
-execution_failure	expressions/null/Null3/[4] Using null in IN [elt=5, coll=[1, 2, 3, null], result=null]
+passed	expressions/null/Null3/[4] Using null in IN [elt=5, coll=[1, 2, 3, null], result=null]
 passed	expressions/null/Null3/[4] Using null in IN [elt=null, coll=[1, 2, 3, null], result=null]
 passed	expressions/null/Null3/[4] Using null in IN [elt=null, coll=[1, 2, 3], result=null]
-execution_failure	expressions/null/Null3/[4] Using null in IN [elt=null, coll=[], result=false]
+passed	expressions/null/Null3/[4] Using null in IN [elt=null, coll=[], result=false]
 passed	expressions/null/Null3/[4] Using null in IN [elt=null, coll=null, result=null]
 translation_failure	expressions/path/Path1/[1] `nodes()` on null path
-execution_failure	expressions/path/Path2/[1] Return relationships by fetching them from the path
-execution_failure	expressions/path/Path2/[2] Return relationships by fetching them from the path - starting from the end
+passed	expressions/path/Path2/[1] Return relationships by fetching them from the path
+passed	expressions/path/Path2/[2] Return relationships by fetching them from the path - starting from the end
 translation_failure	expressions/path/Path2/[3] `relationships()` on null path
-execution_failure	expressions/path/Path3/[1] Return a var length path of length zero
+passed	expressions/path/Path3/[1] Return a var length path of length zero
 correct_rejection	expressions/path/Path3/[2] Failing when using `length()` on a node
 correct_rejection	expressions/path/Path3/[3] Failing when using `length()` on a relationship
 correct_rejection	expressions/pattern/Pattern1/[10] Fail on introducing unbounded variables in pattern [pattern=()-[r]-()]
@@ -2145,8 +2145,8 @@ passed	expressions/precedence/Precedence2/[5] Numeric unary negative takes prece
 passed	expressions/precedence/Precedence3/[1] List element access takes precedence over list appending
 passed	expressions/precedence/Precedence3/[2] List element access takes precedence over list concatenation
 passed	expressions/precedence/Precedence3/[3] List slicing takes precedence over list concatenation
-execution_failure	expressions/precedence/Precedence3/[4] List appending takes precedence over list element containment
-execution_failure	expressions/precedence/Precedence3/[5] List concatenation takes precedence over list element containment
+passed	expressions/precedence/Precedence3/[4] List appending takes precedence over list element containment
+passed	expressions/precedence/Precedence3/[5] List concatenation takes precedence over list element containment
 passed	expressions/precedence/Precedence3/[6] List element containment takes precedence over comparison operator [comp=<, right=null, wrong=false]
 passed	expressions/precedence/Precedence3/[6] List element containment takes precedence over comparison operator [comp=<=, right=null, wrong=false]
 passed	expressions/precedence/Precedence3/[6] List element containment takes precedence over comparison operator [comp=<>, right=true, wrong=false]

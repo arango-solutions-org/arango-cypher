@@ -735,7 +735,7 @@ translatable	clauses/return-skip-limit/ReturnSkipLimit1/[10] Fail when using non
 correct_rejection	clauses/return-skip-limit/ReturnSkipLimit1/[11] Fail when using negative value in SKIP
 translatable	clauses/return-skip-limit/ReturnSkipLimit1/[1] Start the result from the second row
 translatable	clauses/return-skip-limit/ReturnSkipLimit1/[2] Start the result from the second row by param
-translatable	clauses/return-skip-limit/ReturnSkipLimit1/[3] SKIP with an expression that does not depend on variables
+translate_fail	clauses/return-skip-limit/ReturnSkipLimit1/[3] SKIP with an expression that does not depend on variables
 translatable	clauses/return-skip-limit/ReturnSkipLimit1/[4] Accept skip zero
 translatable	clauses/return-skip-limit/ReturnSkipLimit1/[5] SKIP with an expression that depends on variables should fail
 translatable	clauses/return-skip-limit/ReturnSkipLimit1/[6] Negative parameter for SKIP should fail
