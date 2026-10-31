@@ -64,14 +64,15 @@ def test_set_map_with_null_drops_null_attributes():
 
 def test_merge_refusals():
     """openCypher VariableAlreadyBound, MergeReadOwnWrites, UndefinedVariable; a
-    whole-map SET in a MERGE action fails closed instead of being dropped."""
+    whole-map SET in a node MERGE action fails closed instead of being dropped
+    (a relationship MERGE compiles it: merge_docs)."""
     from arango_query_core import CoreError
 
     for q in (
         "MATCH (a) MERGE (a)",
         "MERGE ({num: null})",
         "MERGE (n) ON CREATE SET x.num = 1",
-        "MATCH (a:User), (b:User) MERGE (a)-[r:FOLLOWS]->(b) ON CREATE SET r = a",
+        "MERGE (n:User {id: 1}) ON CREATE SET n = {x: 1}",
     ):
         with pytest.raises(CoreError):
             translate(q, mapping=mapping_bundle_for("lpg"))

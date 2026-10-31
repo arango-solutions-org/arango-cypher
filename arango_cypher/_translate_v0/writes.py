@@ -20,6 +20,15 @@ from .columns import written_column
 from .label_tests import label_test, label_write, label_write_entries, shared_label_fields
 from .label_tests import labels_field as entity_labels_field
 from .literals import _aql_string_literal
+from .merge_bindings import endpoint_action_lines, merge_path_line, refuse_stale_endpoint_return
+from .merge_docs import MapAction, insert_document, update_clause, upsert_options
+from .merge_patterns import (
+    MergeEdge,
+    MergeEndpoint,
+    pattern_merge_lines,
+    refuse_unbound_endpoints,
+    unbound_endpoints,
+)
 from .naming import _aql_collection_ref, _pick_bind_key, _pick_fresh_var, _strip_label_backticks
 from .property_writes import PropertyOp, PropertyWrites, StoredWrite, keep_fields_for
 from .scopes import outer_bound_names
@@ -194,8 +203,14 @@ def _append_multipart_mutate_tail(
     targets are recovered from the already-built MATCH/WITH AQL so aliased
     document projections (``WITH p AS x``) stay bound to the source collection.
     """
+    from .pipeline_deletes import needs_pipeline_delete, translate_pipeline_delete
     from .pipeline_writes import emit_pipeline_writes
 
+    if delete_clauses and not (set_clauses or remove_clauses) and needs_pipeline_delete(delete_clauses):
+        # DELETE of a list element, a map value, …: read all rows, then remove.
+        return translate_pipeline_delete(
+            delete_clauses, tail=tail, lines=lines, var_env=var_env, bind_vars=bind_vars, resolver=resolver
+        )
     emit_pipeline_writes(
         set_clauses=set_clauses,
         delete_clauses=delete_clauses,
@@ -226,6 +241,10 @@ def _core_helper(name: str):
 
 def _compile_expression(*args, **kwargs):
     return _core_helper("_compile_expression")(*args, **kwargs)
+
+
+def _compile_cypher_fragment(*args, **kwargs):
+    return _core_helper("_compile_cypher_fragment")(*args, **kwargs)
 
 
 def _compile_where(*args, **kwargs):
@@ -600,14 +619,19 @@ def _translate_mutating_query(
         raise CoreError("MATCH is required before SET/DELETE", code="UNSUPPORTED")
 
     # Compile the MATCH body into FOR/FILTER lines. Only the first MATCH and its
-    # first pattern part are compiled, so anything else that would narrow the
-    # rows written — another reading clause, another pattern part — must be
-    # refused: ignoring it writes (or deletes) more than the query asks for.
+    # first pattern part are compiled here, so anything else that would narrow
+    # the rows written must be refused: ignoring it writes (or deletes) more
+    # than the query asks for. Several reading clauses compile as a pipeline.
     if len(reading_clauses) > 1:
-        raise CoreError(
-            "SET/DELETE/REMOVE after more than one reading clause is not supported: only the first "
-            "MATCH would be applied, writing rows the others exclude",
-            code="UNSUPPORTED",
+        from .pipeline_writes import translate_multi_reading_mutation
+
+        return translate_multi_reading_mutation(
+            spq,
+            set_clauses=set_clauses,
+            delete_clauses=delete_clauses,
+            remove_clauses=remove_clauses,
+            resolver=resolver,
+            bind_vars=bind_vars,
         )
     mc = match_ctxs[0]
     pattern = mc.oC_Pattern()
@@ -1471,6 +1495,7 @@ def _translate_merge_query(
     if ret is not None:
         ret_var = var
         lines.append(f"LET {ret_var} = NEW")
+        lines.extend(merge_path_line(merge_ctx, [ret_var], []))
         _compile_return_for_create(
             ret.oC_ProjectionBody(),
             lines=lines,
@@ -1485,13 +1510,18 @@ def _refuse_untranslated_merge_parts(
 ) -> None:
     """Refuse what the UPSERT translation would drop instead of compiling.
 
-    A path variable on the MERGE pattern (``MERGE p = (a {num: 1})``) was
-    never bound. A CREATE beside the MERGE (which the AQL also left out) is
-    refused by the router (:func:`write_guards.refuse_dropped_writes`) before this runs.
+    A path variable is bound for a single MERGE of a node or of one hop
+    (:func:`merge_bindings.merge_path_line`); on several MERGEs or a longer pattern it would
+    not be, and is refused. A CREATE beside the MERGE (which the AQL also left
+    out) is refused by the router (:func:`write_guards.refuse_dropped_writes`)
+    before this runs.
     """
     del spq  # the clauses beside the MERGE are the router's to check
     for merge in merge_clauses:
-        if merge.oC_PatternPart().oC_Variable() is not None:
+        chains = merge.oC_PatternPart().oC_AnonymousPatternPart().oC_PatternElement().oC_PatternElementChain()
+        if merge.oC_PatternPart().oC_Variable() is not None and (
+            len(merge_clauses) > 1 or len(chains or []) > 1
+        ):
             raise CoreError(
                 f"MERGE of a named path ({merge.oC_PatternPart().oC_Variable().getText()} = …) is not supported",
                 code="UNSUPPORTED",
@@ -1544,6 +1574,9 @@ def _extract_merge_actions(
     merge_ctx: CypherParser.OC_MergeContext,
     bind_vars: dict[str, Any],
     trailing_sets: list[CypherParser.OC_SetContext] | None = None,
+    *,
+    map_actions: bool = False,
+    endpoint_actions: dict[tuple[str, bool], list[str]] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Extract ON CREATE SET / ON MATCH SET fields from a MERGE clause.
 
@@ -1618,6 +1651,20 @@ def _extract_merge_actions(
                 raise CoreError(
                     f"MERGE ... SET refers to undefined variable {prop_target!r}", code="UNSUPPORTED"
                 )
+            if (
+                prop_target is not None
+                and endpoint_actions is not None
+                and writable is not None
+                and prop_target not in writable
+                and prop_target in outer_bound_names(merge_ctx)
+                and len(si.oC_PropertyExpression().oC_PropertyLookup() or []) == 1
+            ):
+                # A property of a bound endpoint (``ON CREATE SET b.created``):
+                # written to that node after the UPSERT (merge_bindings).
+                key = si.oC_PropertyExpression().oC_PropertyLookup()[0].oC_PropertyKeyName().getText().strip()
+                value = _compile_expression(si.oC_Expression(), bind_vars)
+                endpoint_actions.setdefault((prop_target, is_on_create), []).append(f"{key}: {value}")
+                continue
             if prop_target is not None and writable is not None and prop_target not in writable:
                 # The action's value goes into the UPSERT's own document: a
                 # property of another variable was written onto the merged
@@ -1628,10 +1675,19 @@ def _extract_merge_actions(
                     code="UNSUPPORTED",
                 )
             if si.oC_PropertyExpression() is None:
-                # ``SET r = map`` / ``SET r += map`` would otherwise be dropped.
-                raise CoreError(
-                    f"MERGE ... SET of a whole map ({si.getText()}) is not supported", code="NOT_IMPLEMENTED"
-                )
+                whole = si.oC_Variable()
+                target = _strip_label_backticks(whole.getText().strip()) if whole is not None else None
+                if not map_actions or target is None or writable is None or target not in writable:
+                    # ``SET r = map`` / ``SET r += map`` would otherwise be dropped.
+                    raise CoreError(
+                        f"MERGE ... SET of a whole map ({si.getText()}) is not supported here",
+                        code="NOT_IMPLEMENTED",
+                    )
+                # A node's properties, or the map itself (merge_docs).
+                value = _compile_cypher_fragment(f"properties({si.oC_Expression().getText()})", bind_vars)
+                action = MapAction(value, replaces=not any(c.getText() == "+=" for c in si.getChildren()))
+                (on_create_fields if is_on_create else on_match_fields).append(action)
+                continue
             prop_expr = si.oC_PropertyExpression()
             if prop_expr is not None:
                 lookups = prop_expr.oC_PropertyLookup() or []
@@ -1661,7 +1717,19 @@ def _translate_merge_relationship(
     resolver: MappingResolver,
     bind_vars: dict[str, Any],
 ) -> AqlQuery:
-    """Translate ``MERGE (a)-[:REL {props}]->(b)`` into AQL UPSERT on an edge collection."""
+    """Translate ``MERGE (a)-[:REL {props}]->(b)`` into AQL UPSERT on an edge collection.
+
+    With an endpoint no earlier clause binds, the whole pattern is merged
+    instead (:mod:`merge_patterns`), or refused where that is not covered.
+    """
+    unbound = unbound_endpoints(merge_ctx, outer_bound_names(merge_ctx))
+    refuse_unbound_endpoints(
+        merge_ctx,
+        unbound,
+        first_clause=not spq.oC_ReadingClause()
+        and isinstance(spq.parentCtx, CypherParser.OC_SingleQueryContext),
+        hops=len(chains),
+    )
     if len(chains) != 1:
         return _translate_merge_multi_hop(
             spq,
@@ -1723,44 +1791,109 @@ def _translate_merge_relationship(
         search_fields.append(f"{type_field}: @{rtv_key}")
         insert_fields.append(f"{type_field}: @{rtv_key}")
 
-    rel_props = _compile_create_rel_props(rel_pat, bind_vars)
-    for k, v in rel_props:
+    # The pattern's properties are part of what the MERGE matches, not only
+    # of what it creates: (a)-[:T {name: 'r2'}]->(b) does not match an r1 edge.
+    for k, v in _compile_create_rel_props(rel_pat, bind_vars):
+        search_fields.append(f"{k}: {v}")
         insert_fields.append(f"{k}: {v}")
 
-    on_create_fields, on_match_fields = _extract_merge_actions(merge_ctx, bind_vars)
+    if unbound:
+        return _translate_pattern_merge(
+            spq,
+            merge_ctx=merge_ctx,
+            nodes=(node, target_node),
+            edge=MergeEdge(
+                var=detail.oC_Variable().getText().strip()
+                if detail.oC_Variable() is not None
+                else "_mergeRel",
+                coll_key=edge_coll_key,
+                direction=direction,
+                search_fields=search_fields[2:],
+                insert_fields=insert_fields[2:],
+            ),
+            resolver=resolver,
+            bind_vars=bind_vars,
+        )
+
+    endpoint_actions: dict[tuple[str, bool], list[str]] = {}
+    on_create_fields, on_match_fields = _extract_merge_actions(
+        merge_ctx, bind_vars, map_actions=True, endpoint_actions=endpoint_actions
+    )
 
     search_doc = "{" + ", ".join(search_fields) + "}"
-
-    if on_create_fields:
-        all_insert = list(insert_fields) + on_create_fields
-        insert_doc = "{" + ", ".join(all_insert) + "}"
-    else:
-        insert_doc = "{" + ", ".join(insert_fields) + "}"
-
-    update_doc = "{" + ", ".join(on_match_fields) + "}" if on_match_fields else "{}"
+    # What a whole-map ``SET r = …`` keeps: the edge's endpoints and type.
+    keep = ["_from", "_to", *([r_map.get("typeField", "type")] if r_style == "GENERIC_WITH_TYPE" else [])]
+    insert_doc = insert_document(insert_fields, on_create_fields, keep)
 
     lines: list[str] = []
     _compile_merge_reading_clauses(spq, resolver=resolver, bind_vars=bind_vars, lines=lines)
 
     lines.append(f"UPSERT {search_doc}")
     lines.append(f"INSERT {insert_doc}")
-    lines.append(f"UPDATE {update_doc}")
-    lines.append(f"IN {edge_coll_ref}")
+    lines.append(update_clause(on_match_fields, keep))
+    lines.append(f"IN {edge_coll_ref}{upsert_options(on_match_fields)}")
+    if endpoint_actions:
+        lines.extend(
+            endpoint_action_lines(
+                endpoint_actions,
+                _infer_var_collections_from_pipeline(lines),
+                bind_vars,
+                final=spq.oC_Return() is None,
+            )
+        )
 
     ret = spq.oC_Return()
     if ret is not None:
+        refuse_stale_endpoint_return(ret, endpoint_actions)
         rel_var_name = ""
         if detail.oC_Variable() is not None:
             rel_var_name = detail.oC_Variable().getText().strip()
         if not rel_var_name:
             rel_var_name = "r"
         lines.append(f"LET {rel_var_name} = NEW")
+        lines.extend(merge_path_line(merge_ctx, [start_var, end_var], [rel_var_name]))
         _compile_return_for_create(
             ret.oC_ProjectionBody(),
             lines=lines,
             bind_vars=bind_vars,
         )
 
+    return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
+
+
+def _translate_pattern_merge(
+    spq: CypherParser.OC_SinglePartQueryContext,
+    *,
+    merge_ctx: CypherParser.OC_MergeContext,
+    nodes: tuple[CypherParser.OC_NodePatternContext, CypherParser.OC_NodePatternContext],
+    edge: MergeEdge,
+    resolver: MappingResolver,
+    bind_vars: dict[str, Any],
+) -> AqlQuery:
+    """``MERGE (a:A)-[r:R]->(b:B)`` as the first clause: merge the whole pattern (:mod:`merge_patterns`)."""
+    endpoints: list[MergeEndpoint] = []
+    for node, default in zip(nodes, ("_mergeStart", "_mergeEnd"), strict=True):
+        name = node.oC_Variable().getText().strip() if node.oC_Variable() is not None else default
+        if endpoints and name == endpoints[0].var:
+            # A self-loop: ``(a:A)-[:R]->(a)``; the second mention adds nothing.
+            if node.oC_NodeLabels() is not None or node.oC_Properties() is not None:
+                raise CoreError(
+                    f"MERGE cannot add labels or properties to {name!r} on its second mention in the pattern",
+                    code="UNSUPPORTED",
+                )
+            endpoints.append(endpoints[0])
+            continue
+        _, coll_key, _, search_doc, insert_doc, _ = _build_merge_node_docs(
+            node, merge_ctx, resolver=resolver, bind_vars=bind_vars
+        )
+        endpoints.append(
+            MergeEndpoint(var=name, coll_key=coll_key, search_doc=search_doc, insert_doc=insert_doc)
+        )
+    ret = spq.oC_Return()
+    lines = pattern_merge_lines(endpoints[0], endpoints[1], edge, final=ret is None)
+    if ret is not None:
+        lines.extend(merge_path_line(merge_ctx, [endpoints[0].var, endpoints[1].var], [edge.var]))
+        _compile_return_for_create(ret.oC_ProjectionBody(), lines=lines, bind_vars=bind_vars)
     return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
 
 
@@ -1851,6 +1984,7 @@ def _translate_merge_multi_hop(
             search_fields.append(f"{type_field}: @{rtv_key}")
             insert_fields.append(f"{type_field}: @{rtv_key}")
         for k, v in _compile_create_rel_props(rel_pat, bind_vars):
+            search_fields.append(f"{k}: {v}")
             insert_fields.append(f"{k}: {v}")
 
         lines.append("UPSERT {" + ", ".join(search_fields) + "}")

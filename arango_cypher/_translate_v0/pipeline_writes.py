@@ -13,6 +13,10 @@ AQL refuses to read a collection after writing it in the same query
 may filter, project, aggregate and ``UNWIND`` the rows it has — but a later
 ``MATCH``, ``CALL`` or second write is refused here, with the reason, rather
 than handed to ArangoDB.
+
+A variable an OPTIONAL MATCH binds is null on the rows it did not match;
+SET, REMOVE and DELETE of null do nothing (openCypher), so a write of such a
+variable runs over ``(x == null ? [] : [x])`` (:func:`nullable_vars`).
 """
 
 from __future__ import annotations
@@ -20,11 +24,35 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from arango_query_core import CoreError, MappingResolver
+from arango_query_core import AqlQuery, CoreError, MappingResolver
 
 from .._antlr.CypherParser import CypherParser
 from .naming import _aql_collection_ref, _pick_bind_key, _pick_fresh_var
 from .property_writes import keep_fields_for
+
+#: ``LET r = _opt_row.r``: a variable an OPTIONAL MATCH binds (null when it did not match).
+_OPTIONAL_BINDING = re.compile(r"^\s*LET (\w+) = _opt_row\w*\.\w+\s*$")
+#: ``LET x = r``: a WITH alias, null when its source is.
+_COPY = re.compile(r"^\s*LET (\w+) = (\w+)\s*$")
+
+
+def nullable_vars(lines: list[str]) -> set[str]:
+    """The AQL variables of the pipeline *lines* that an OPTIONAL MATCH may leave null."""
+    out: set[str] = set()
+    for line in lines:
+        m = _OPTIONAL_BINDING.match(line)
+        if m is not None:
+            out.add(m.group(1))
+            continue
+        m = _COPY.match(line)
+        if m is not None and m.group(2) in out:
+            out.add(m.group(1))
+    return out
+
+
+def _unless_null(var: str) -> str:
+    return f"({var} == null ? [] : [{var}])"
+
 
 #: What a query may not do after it wrote mid-pipeline, and why.
 AFTER_WRITE_REFUSAL = (
@@ -99,16 +127,30 @@ def emit_pipeline_writes(
         rewrite_value=(lambda value: _rewrite_vars(value, var_env)) if var_env else None,
     )
     physical = resolver.bundle.physical_mapping
+    nullable = nullable_vars(lines)
     written: list[tuple[str, str]] = []
     env = dict(var_env)
     for target_var in writes.ops:
         key = _coll_key_for(target_var)
         write = writes.stored_write(target_var, keep_fields_for(bind_vars[key], physical))
-        lines.append(_stored_write_line(target_var, _aql_collection_ref(key), write))
-        written.append((f"SET/REMOVE on {target_var}", bind_vars[key]))
+        updated = None
         if rebind_to is not None:
             updated = _pick_fresh_var(f"{target_var}_new", forbidden_vars=rebind_to)
-            lines.append(f"  LET {updated} = NEW")
+        if target_var in nullable:
+            # Of null nothing is written, and the variable stays null after.
+            statement = _stored_write_line("_w", _aql_collection_ref(key), write, indent="")
+            if updated is not None:
+                lines.append(
+                    f"  LET {updated} = FIRST(FOR _w IN {_unless_null(target_var)} {statement} RETURN NEW)"
+                )
+            else:
+                lines.append(f"  LET _set_{target_var} = (FOR _w IN {_unless_null(target_var)} {statement})")
+        else:
+            lines.append(_stored_write_line(target_var, _aql_collection_ref(key), write))
+            if updated is not None:
+                lines.append(f"  LET {updated} = NEW")
+        written.append((f"SET/REMOVE on {target_var}", bind_vars[key]))
+        if updated is not None:
             for name, aql in list(env.items()):
                 if aql == target_var:
                     env[name] = updated
@@ -134,12 +176,20 @@ def emit_pipeline_writes(
                     bind_vars[ec_key] = ec
                     ec_ref = _aql_collection_ref(ec_key)
                     de_edge = f"_de{idx}"
+                    start = f"_ds IN {_unless_null(simple)} FOR " if simple in nullable else ""
+                    origin = "_ds" if start else simple
                     lines.append(
-                        f"  LET _edgeRm{idx} = (FOR {de_edge} IN 1..1 ANY {simple} {ec_ref} "
+                        f"  LET _edgeRm{idx} = (FOR {start}{de_edge} IN 1..1 ANY {origin} {ec_ref} "
                         f"REMOVE {de_edge} IN {ec_ref})"
                     )
                     written.append((f"DETACH DELETE {simple} (its {ec} edges)", ec))
-            lines.append(f"  REMOVE {simple} IN {_aql_collection_ref(_coll_key_for(simple))}")
+            coll_ref = _aql_collection_ref(_coll_key_for(simple))
+            if simple in nullable:
+                lines.append(
+                    f"  LET _rm_{simple} = (FOR _w IN {_unless_null(simple)} REMOVE _w IN {coll_ref})"
+                )
+            else:
+                lines.append(f"  REMOVE {simple} IN {coll_ref}")
             written.append((f"DELETE {simple}", bind_vars[_coll_key_for(simple)]))
 
     _refuse_repeated_collections(written)
@@ -197,3 +247,72 @@ def append_midquery_writes(
 def refuse_after_write(what: str) -> CoreError:
     """The refusal for a clause that would read or write after a mid-pipeline write."""
     return CoreError(AFTER_WRITE_REFUSAL.format(what=what), code="UNSUPPORTED")
+
+
+def translate_multi_reading_mutation(
+    spq: CypherParser.OC_SinglePartQueryContext,
+    *,
+    set_clauses: list[CypherParser.OC_SetContext],
+    delete_clauses: list[CypherParser.OC_DeleteContext],
+    remove_clauses: list[Any],
+    resolver: MappingResolver,
+    bind_vars: dict[str, Any],
+) -> AqlQuery:
+    """SET / REMOVE / DELETE after several reading clauses: ``MATCH (n) OPTIONAL
+    MATCH (n)-[r]->() REMOVE r.num RETURN n`` (TCK Remove1 [6]).
+
+    The reading clauses compile as a multi-part query's do (a MATCH, then
+    MATCH, OPTIONAL MATCH — whose unmatched rows are kept, null-extended — or
+    UNWIND reading the rows so far); the writes and the RETURN follow as after
+    a WITH (:func:`writes._append_multipart_mutate_tail`), each row written
+    after every read of it.
+    """
+    from .core import (
+        _compile_following_match,
+        _compile_leading_match,
+        _compile_pipeline_unwind,
+        _set_user_vars_from_parts,
+    )
+    from .writes import _append_multipart_mutate_tail
+
+    reading = spq.oC_ReadingClause() or []
+    first = reading[0].oC_Match() if reading else None
+    if first is None:
+        raise CoreError(
+            "SET/DELETE/REMOVE after reading clauses that do not start with MATCH is not supported",
+            code="UNSUPPORTED",
+        )
+    lines, forbidden_vars, var_env = _compile_leading_match(first, resolver=resolver, bind_vars=bind_vars)
+    _set_user_vars_from_parts(first.oC_Pattern().oC_PatternPart() or [])
+    for rc in reading[1:]:
+        match, unwind = rc.oC_Match(), rc.oC_Unwind()
+        if match is not None:
+            var_env, _ = _compile_following_match(
+                match,
+                resolver=resolver,
+                bind_vars=bind_vars,
+                forbidden_vars=forbidden_vars,
+                var_env=var_env,
+                lines=lines,
+            )
+            _set_user_vars_from_parts(match.oC_Pattern().oC_PatternPart() or [])
+        elif unwind is not None:
+            var_env = _compile_pipeline_unwind(
+                unwind, bind_vars=bind_vars, forbidden_vars=forbidden_vars, var_env=var_env, lines=lines
+            )
+        else:
+            raise CoreError(
+                f"SET/DELETE/REMOVE after {rc.getText()[:40]!r} is not supported: only MATCH, "
+                "OPTIONAL MATCH and UNWIND may read before them",
+                code="UNSUPPORTED",
+            )
+    return _append_multipart_mutate_tail(
+        set_clauses=set_clauses,
+        delete_clauses=delete_clauses,
+        remove_clauses=remove_clauses,
+        tail=spq,
+        lines=lines,
+        var_env=var_env,
+        bind_vars=bind_vars,
+        resolver=resolver,
+    )

@@ -150,13 +150,13 @@ translatable	clauses/delete/Delete3/[2] Delete on null path
 translatable	clauses/delete/Delete4/[1] Undirected expand followed by delete and count
 translatable	clauses/delete/Delete4/[2] Undirected variable length expand followed by delete and count
 translate_fail	clauses/delete/Delete4/[3] Create and delete in same query
-translate_fail	clauses/delete/Delete5/[1] Delete node from a list
-translate_fail	clauses/delete/Delete5/[2] Delete relationship from a list
-translate_fail	clauses/delete/Delete5/[3] Delete nodes from a map
-translate_fail	clauses/delete/Delete5/[4] Delete relationships from a map
-translate_fail	clauses/delete/Delete5/[5] Detach delete nodes from nested map/list
-translate_fail	clauses/delete/Delete5/[6] Delete relationships from nested map/list
-translate_fail	clauses/delete/Delete5/[7] Delete paths from nested map/list
+translatable	clauses/delete/Delete5/[1] Delete node from a list
+translatable	clauses/delete/Delete5/[2] Delete relationship from a list
+translatable	clauses/delete/Delete5/[3] Delete nodes from a map
+translatable	clauses/delete/Delete5/[4] Delete relationships from a map
+translatable	clauses/delete/Delete5/[5] Detach delete nodes from nested map/list
+translatable	clauses/delete/Delete5/[6] Delete relationships from nested map/list
+translatable	clauses/delete/Delete5/[7] Delete paths from nested map/list
 correct_rejection	clauses/delete/Delete5/[8] Failing when using undefined variable in DELETE
 correct_rejection	clauses/delete/Delete5/[9] Failing when deleting an integer expression
 translatable	clauses/delete/Delete6/[10] Skipping and limiting to a few results after deleting relationships affects the result set but not the side effects
@@ -591,7 +591,7 @@ translatable	clauses/match/Match9/[9] Optionally matching named paths with varia
 translatable	clauses/merge/Merge1/[10] Merge must properly handle multiple labels
 translatable	clauses/merge/Merge1/[11] Merge should be able to merge using property of bound node
 translate_fail	clauses/merge/Merge1/[12] Merge should be able to merge using property of freshly created node
-translate_fail	clauses/merge/Merge1/[13] Merge should bind a path
+translatable	clauses/merge/Merge1/[13] Merge should bind a path
 translate_fail	clauses/merge/Merge1/[14] Merges should not be able to match on deleted nodes
 correct_rejection	clauses/merge/Merge1/[15] Fail when merge a node that is already bound
 correct_rejection	clauses/merge/Merge1/[16] Fail when using parameter as node predicate in MERGE
@@ -647,17 +647,17 @@ translatable	clauses/merge/Merge5/[6] Creating relationship when all matches fil
 translatable	clauses/merge/Merge5/[7] Matching incoming relationship
 translatable	clauses/merge/Merge5/[8] Creating relationship with property
 translate_fail	clauses/merge/Merge5/[9] Creating relationship using merged nodes
-translate_fail	clauses/merge/Merge6/[1] Using ON CREATE on a node
+translatable	clauses/merge/Merge6/[1] Using ON CREATE on a node
 translatable	clauses/merge/Merge6/[2] Using ON CREATE on a relationship
 translatable	clauses/merge/Merge6/[3] Updating one property with ON CREATE
 translatable	clauses/merge/Merge6/[4] Null-setting one property with ON CREATE
-translate_fail	clauses/merge/Merge6/[6] Copying properties from node with ON CREATE
-translate_fail	clauses/merge/Merge6/[7] Copying properties from literal map with ON CREATE
-translate_fail	clauses/merge/Merge7/[1] Using ON MATCH on created node
+translatable	clauses/merge/Merge6/[6] Copying properties from node with ON CREATE
+translatable	clauses/merge/Merge6/[7] Copying properties from literal map with ON CREATE
+translatable	clauses/merge/Merge7/[1] Using ON MATCH on created node
 translatable	clauses/merge/Merge7/[2] Using ON MATCH on created relationship
 translatable	clauses/merge/Merge7/[3] Using ON MATCH on a relationship
-translate_fail	clauses/merge/Merge7/[4] Copying properties from node with ON MATCH
-translate_fail	clauses/merge/Merge7/[5] Copying properties from literal map with ON MATCH
+translatable	clauses/merge/Merge7/[4] Copying properties from node with ON MATCH
+translatable	clauses/merge/Merge7/[5] Copying properties from literal map with ON MATCH
 translatable	clauses/merge/Merge8/[1] Using ON CREATE and ON MATCH
 translatable	clauses/merge/Merge9/[1] UNWIND with one MERGE
 translate_fail	clauses/merge/Merge9/[2] UNWIND with multiple MERGE
@@ -668,7 +668,7 @@ translatable	clauses/remove/Remove1/[2] Remove multiple node properties
 translatable	clauses/remove/Remove1/[3] Remove a single relationship property
 translatable	clauses/remove/Remove1/[4] Remove multiple relationship properties
 translatable	clauses/remove/Remove1/[5] Ignore null when removing property from a node
-translate_fail	clauses/remove/Remove1/[6] Ignore null when removing property from a relationship
+translatable	clauses/remove/Remove1/[6] Ignore null when removing property from a relationship
 translatable	clauses/remove/Remove1/[7] Remove a missing node property
 translatable	clauses/remove/Remove2/[1] Remove a single label from a node with a single label
 translatable	clauses/remove/Remove2/[2] Remove a single label from a node with two labels
