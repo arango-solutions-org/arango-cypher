@@ -17,6 +17,7 @@ from fastapi import Depends, HTTPException
 
 from ... import corrections as _corrections
 from ...api import translate, validate_cypher_profile
+from ...plans import translate_plan
 from ...tenant_ast_aql import AqlRewriteError
 from ...tenant_plan_validator import TenantScopeViolation
 from ..app import app
@@ -31,6 +32,7 @@ from ..models import (
     ValidateResponse,
 )
 from ..observability import log_endpoint_timing
+from ..plan_route import execute_plan_response
 from ..registry import _default_registry
 from ..safe_exec import apply_layer4_rewrite, safe_execute_aql
 from ..security import (
@@ -466,7 +468,8 @@ def execute_endpoint(
     registry = _default_registry if req.extensions_enabled else None
     try:
         t_translate = time.perf_counter()
-        transpiled = translate(
+        # One statement when the query fits one, else a multi-statement plan.
+        plan = translate_plan(
             req.cypher,
             mapping=mapping,
             registry=registry,
@@ -478,6 +481,16 @@ def execute_endpoint(
             status_code=422,
             detail={"error": _sanitize_error(str(e)), "code": e.code},
         ) from e
+    if not plan.is_single_statement:
+        return execute_plan_response(
+            plan,
+            cypher=req.cypher,
+            session=session,
+            max_rows=req.max_rows,
+            translate_ms=translate_ms,
+            sanitize=_sanitize_error,
+        )
+    transpiled = plan.steps[0].query
 
     correction = _corrections.lookup(req.cypher, req.mapping)
     run_aql = correction.corrected_aql if correction else transpiled.aql

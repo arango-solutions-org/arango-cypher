@@ -18,6 +18,7 @@ from arango import ArangoClient
 from fastapi.testclient import TestClient
 
 from arango_cypher.api import TranspiledQuery
+from arango_cypher.plans import PlanStep, TranslationPlan
 from tests.helpers.service_reload import fresh_service
 
 pytestmark = pytest.mark.integration
@@ -68,7 +69,9 @@ def test_generated_aql_the_database_rejects_is_reported_as_our_bug(
     svc, client, token = session
     # Stand in for a translator bug: the AQL the hyphenated-name bug produced.
     broken = TranspiledQuery(aql="WITH IAM-users\nFOR u IN users RETURN u", bind_vars={}, warnings=[])
-    monkeypatch.setitem(_endpoint(svc, "/execute").__globals__, "translate", lambda *a, **k: broken)
+    # /execute translates through translate_plan: a one-step plan of the broken query.
+    plan = TranslationPlan(steps=(PlanStep(broken),), result_step=0)
+    monkeypatch.setitem(_endpoint(svc, "/execute").__globals__, "translate_plan", lambda *a, **k: plan)
     resp = client.post(
         "/execute",
         json={"cypher": "MATCH (u:User) RETURN u", "mapping": _MAPPING},

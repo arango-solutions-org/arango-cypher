@@ -36,6 +36,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from tests.helpers.service_reload import fresh_service as _fresh_service
+
+
+def _one_step_plan() -> Any:
+    """What ``translate_plan`` returns for a query that fits one statement."""
+    from arango_cypher import TranspiledQuery
+    from arango_cypher.plans import PlanStep, TranslationPlan
+
+    query = TranspiledQuery(aql="FOR n IN @@coll RETURN n", bind_vars={}, warnings=[])
+    return TranslationPlan(steps=(PlanStep(query),), result_step=0)
+
+
 from tests.helpers.service_reload import patched_arango_client as _patched_arango_client
 
 # ---------------------------------------------------------------------------
@@ -739,14 +750,10 @@ class TestExecuteTenantViolationStatusCode:
 
         token = self._connect_unbound()
 
-        class _Transpiled:
-            aql = "FOR n IN @@coll RETURN n"
-            bind_vars: dict[str, Any] = {}
-            warnings: list[Any] = []
-
-        # Reach safe_execute_aql without needing a real schema/translation.
+        # Reach safe_execute_aql without needing a real schema/translation:
+        # /execute translates through translate_plan (one step here).
         monkeypatch.setattr(cypher_routes, "_mapping_from_dict", lambda _m: object())
-        monkeypatch.setattr(cypher_routes, "translate", lambda *_a, **_k: _Transpiled())
+        monkeypatch.setattr(cypher_routes, "translate_plan", lambda *_a, **_k: _one_step_plan())
 
         def _raise_violation(**_kwargs):
             raise TenantScopeViolation(
@@ -780,13 +787,8 @@ class TestExecuteTenantViolationStatusCode:
 
         token = self._connect_unbound()
 
-        class _Transpiled:
-            aql = "FOR n IN @@coll RETURN n"
-            bind_vars: dict[str, Any] = {}
-            warnings: list[Any] = []
-
         monkeypatch.setattr(cypher_routes, "_mapping_from_dict", lambda _m: object())
-        monkeypatch.setattr(cypher_routes, "translate", lambda *_a, **_k: _Transpiled())
+        monkeypatch.setattr(cypher_routes, "translate_plan", lambda *_a, **_k: _one_step_plan())
 
         def _raise_runtime(**_kwargs):
             raise RuntimeError("arango driver exploded")
