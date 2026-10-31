@@ -1,4 +1,4 @@
-"""Cypher names AQL cannot spell.
+"""Cypher names AQL cannot spell, and ``startNode`` / ``endNode``.
 
 AQL refuses a variable that does not start, after any underscores, with an
 ASCII letter — ``_001`` (TCK Create4), ``ä`` — even in backticks (ERR 1501),
@@ -56,3 +56,9 @@ def test_an_unaliased_column_keeps_the_written_name() -> None:
 def test_a_property_key_aql_cannot_spell_bare_is_quoted(cypher: str) -> None:
     assert "`_001`" in _aql(cypher)
 
+
+def test_start_and_end_node_read_the_edge_s_endpoints() -> None:
+    aql = _aql("MATCH (:User)-[r:FOLLOWS]->() RETURN startNode(r) AS s, endNode(r) AS e")
+    assert "(IS_OBJECT(r) ? DOCUMENT(r._from) : null)" in aql
+    assert "(IS_OBJECT(r) ? DOCUMENT(r._to) : null)" in aql
+    assert "RETURN {s: null}" in _aql("RETURN startNode(null) AS s")

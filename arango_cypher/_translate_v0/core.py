@@ -6911,6 +6911,16 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
             if len(compiled_args) == 3:
                 return f"RANGE({compiled_args[0]}, {compiled_args[1]}, {compiled_args[2]})"
             raise CoreError("range expects 2-3 args", code="UNSUPPORTED")
+        if fn_norm in ("startnode", "endnode"):
+            # The node a relationship leaves from / goes to: the document its
+            # ``_from`` / ``_to`` names, as a MATCH binds it; null for null.
+            if len(compiled_args) != 1:
+                raise CoreError(f"{fn} expects 1 arg", code="UNSUPPORTED")
+            r_var = compiled_args[0]
+            if r_var.strip() == "null":
+                return "null"
+            end = "_from" if fn_norm == "startnode" else "_to"
+            return f"(IS_OBJECT({r_var}) ? DOCUMENT({r_var}.{end}) : null)"
         if fn_norm == "type":
             if len(compiled_args) != 1:
                 raise CoreError("type expects 1 arg", code="UNSUPPORTED")

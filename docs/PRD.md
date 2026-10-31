@@ -547,7 +547,13 @@ backslash or a backtick (`_reject_unsafe_escaped_names`, run on every parse
 tree). Any other content means the same thing in both languages. A variable
 or property key spelled like an AQL reserved word (`like`, `filter`, `sort`,
 `in`, `limit`, … in any case) is a plain name in Cypher but a syntax error in
-AQL, so it is emitted backtick-quoted (`_quote_aql_reserved_names`). Names the
+AQL, so it is emitted backtick-quoted (`_quote_aql_reserved_names`); so is a
+property key AQL cannot spell bare (`n._001`, `n.ä`) and a variable that
+starts well but holds other characters (`aä`). A variable AQL refuses even
+quoted — one that does not start, after any underscores, with an ASCII letter
+(`_001`, TCK Create4; `ä`) — is renamed in the tree to a fresh, deterministic
+name (`v_001`, numbered while it clashes; `_rename_invalid_aql_variables`); a
+column named by it as written keeps that name. Names the
 translator derives from a quoted name (`_x_distinct`, `x_1`, `{var}TypeField`)
 stay inside its backticks (`_affix_name`), and bind names keep only the
 characters AQL accepts in one (`_pick_bind_key`). An unnamed node or
@@ -610,7 +616,8 @@ may have any number of hops; one relationship is never matched twice within
 a pattern. A hop may name several relationship types (`[:A|B]`, also
 variable-length): on PG the traversal follows each type's edge collection, on
 LPG it tests the type field against the list, and `type(r)` is the type of
-the edge matched. Types mapped in different styles, or to different
+the edge matched. `startNode(r)` / `endNode(r)` are the documents the edge's
+`_from` / `_to` name, as a MATCH binds a node, and null for null. Types mapped in different styles, or to different
 type-discriminated collections, are refused; so is a write to such a
 relationship and an edge scan `MATCH ()-[r:A|B]->()`. `p = shortestPath((a)-[:R*]-(b))` between
 nodes bound earlier (another pattern part or a WITH) is a breadth-first
@@ -1086,15 +1093,21 @@ arango-query-core, which owns query execution; it lives here behind an
 `# upstream:` marker until the package ships it.
 
 `arango_cypher.execute()`, the CLI's `run`, the TCK harness and the service's
-`POST /execute` run plans. The service returns each step in `plan_steps` and
-refuses a plan for a tenant-bound session (`MULTI_STATEMENT_TENANT_BOUND`),
-since tenant Layers 4 and 5 do not certify a plan's steps yet.
+`POST /execute` run plans; the service returns each step in `plan_steps`.
 
-Not covered by plans: a node MERGE yields one existing match per row (an
-UPSERT), where openCypher yields every match (TCK Merge5 [3], Match8 [2]); a
-relationship MERGE whose endpoints no earlier clause binds after another clause
-or with ON CREATE / ON MATCH stays refused, since each row would need its own
-statement.
+**Policy: plans are refused for tenant-bound sessions.** `POST /execute` answers
+a multi-statement query from a tenant-bound session with 422
+`MULTI_STATEMENT_TENANT_BOUND`, deliberately and fail-closed: tenant Layer 4
+(AST injection) and Layer 5 (EXPLAIN-plan validation) certify one statement,
+not a step that reads an earlier step's rows (`@_stepN_rows`). Workbench and
+single-tenant sessions run plans. Follow-up: Layers 4/5 certify plan steps.
+
+**Known gaps.** A node MERGE yields one existing match per row (an UPSERT),
+where openCypher yields every match (TCK Merge5 [3], Match8 [2]); a
+relationship MERGE whose endpoints no earlier clause binds, after another clause
+or with ON CREATE / ON MATCH, stays refused. Both need a per-row step — one
+statement per input row, each seeing the rows before it — which plans do not
+have.
 
 ### 8.4 Not yet supported
 

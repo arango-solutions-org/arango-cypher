@@ -130,3 +130,37 @@ def test_names_aql_reserves(db: Any, cypher: str, expected: list[Any]) -> None:
 def test_names_built_from_a_quoted_name_stay_quoted(db: Any, cypher: str, expected: list[Any]) -> None:
     """``_`a b`_distinct`` and a WITH that dropped ```a b``` from its scope."""
     assert _rows(db, cypher) == expected
+
+
+@pytest.mark.parametrize(
+    ("cypher", "expected"),
+    [
+        pytest.param(
+            "MATCH (_1:User {name: 'a'})-[:FOLLOWS]->(_001:User) RETURN _001.name AS n ORDER BY n",
+            ["b", "c"],
+            id="underscore-digit-variables-are-renamed",
+        ),
+        pytest.param(
+            "MATCH (ä:User {name: 'a'})-[:FOLLOWS]->(aä:User) RETURN aä.name AS n ORDER BY n",
+            ["b", "c"],
+            id="non-ascii-variables",
+        ),
+        pytest.param("RETURN {_001: 1}._001 AS x", [1], id="underscore-digit-property-key"),
+        pytest.param(
+            "MATCH (:User {name: 'c'})-[r:FOLLOWS]->() RETURN startNode(r).name AS s, endNode(r).name AS e",
+            [{"s": "c", "e": "d"}],
+            id="start-and-end-node",
+        ),
+        pytest.param(
+            "OPTIONAL MATCH (:User {name: 'd'})-[r:FOLLOWS]->() RETURN startNode(r) AS s",
+            [None],
+            id="start-node-of-null",
+        ),
+    ],
+)
+def test_names_aql_cannot_spell_and_relationship_endpoints(db: Any, cypher: str, expected: list[Any]) -> None:
+    """``_001`` / ``ä`` are not AQL variable names even quoted (ERR 1501), and
+    ``startNode`` / ``endNode`` were unsupported functions."""
+    rows = _rows(db, cypher)
+    single = [next(iter(r.values())) if isinstance(r, dict) and len(r) == 1 else r for r in rows]
+    assert single == expected
