@@ -189,7 +189,7 @@ translatable	clauses/match-where/MatchWhere1/[7] Filter relationship with relati
 translatable	clauses/match-where/MatchWhere1/[8] Filter relationship with property predicate on multi variables with multiple bindings
 translatable	clauses/match-where/MatchWhere1/[9] Filter relationship with a parameter in a property predicate on multi variables with one binding
 translatable	clauses/match-where/MatchWhere2/[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
-translate_fail	clauses/match-where/MatchWhere2/[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings
+translatable	clauses/match-where/MatchWhere2/[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings
 translatable	clauses/match-where/MatchWhere3/[1] Join between node identities
 translatable	clauses/match-where/MatchWhere3/[2] Join between node properties of disconnected nodes
 translatable	clauses/match-where/MatchWhere3/[3] Join between node properties of adjacent nodes
@@ -200,7 +200,7 @@ translatable	clauses/match-where/MatchWhere5/[2] Filter out on null if the AND'd
 translatable	clauses/match-where/MatchWhere5/[3] Filter out on null if the AND'd predicate evaluates to true
 translatable	clauses/match-where/MatchWhere5/[4] Do not filter out on null if the OR'd predicate evaluates to true
 translatable	clauses/match-where/MatchWhere6/[1] Filter node with node label predicate on multi variables with multiple bindings after MATCH and OPTIONAL MATCH
-translate_fail	clauses/match-where/MatchWhere6/[2] Filter node with false node label predicate after OPTIONAL MATCH
+translatable	clauses/match-where/MatchWhere6/[2] Filter node with false node label predicate after OPTIONAL MATCH
 translatable	clauses/match-where/MatchWhere6/[3] Filter node with property predicate on multi variables with multiple bindings after OPTIONAL MATCH
 translatable	clauses/match-where/MatchWhere6/[4] Do not fail when predicates on optionally matched and missed nodes are invalid
 translatable	clauses/match-where/MatchWhere6/[5] Matching and optionally matching with unbound nodes and equality predicate in reverse direction
@@ -420,8 +420,8 @@ translate_fail	clauses/match/Match4/[7] Matching variable length patterns includ
 translatable	clauses/match/Match4/[8] Matching relationships into a list and matching variable length using the list
 correct_rejection	clauses/match/Match4/[9] Fail when asterisk operator is missing
 translatable	clauses/match/Match5/[10] Handling symmetrically bounded variable length match, bounds are two
-translate_fail	clauses/match/Match5/[11] Handling upper and lower bounded variable length match, empty interval 1
-translate_fail	clauses/match/Match5/[12] Handling upper and lower bounded variable length match, empty interval 2
+translatable	clauses/match/Match5/[11] Handling upper and lower bounded variable length match, empty interval 1
+translatable	clauses/match/Match5/[12] Handling upper and lower bounded variable length match, empty interval 2
 translatable	clauses/match/Match5/[13] Handling upper bounded variable length match, empty interval
 translatable	clauses/match/Match5/[14] Handling upper bounded variable length match 1
 translatable	clauses/match/Match5/[15] Handling upper bounded variable length match 2
@@ -1210,7 +1210,7 @@ translatable	clauses/with-where/WithWhere1/[2] Filter node with property predica
 translatable	clauses/with-where/WithWhere1/[3] Filter for an unbound relationship variable
 translatable	clauses/with-where/WithWhere1/[4] Filter for an unbound node variable
 translatable	clauses/with-where/WithWhere2/[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
-translate_fail	clauses/with-where/WithWhere2/[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings
+translatable	clauses/with-where/WithWhere2/[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings
 translatable	clauses/with-where/WithWhere3/[1] Join between node identities
 translatable	clauses/with-where/WithWhere3/[2] Join between node properties of disconnected nodes
 translatable	clauses/with-where/WithWhere3/[3] Join between node properties of adjacent nodes
@@ -1531,7 +1531,7 @@ translatable	expressions/existentialSubqueries/ExistentialSubquery2/[1] Full exi
 translatable	expressions/existentialSubqueries/ExistentialSubquery2/[2] Full existential subquery with aggregation
 correct_rejection	expressions/existentialSubqueries/ExistentialSubquery2/[3] Full existential subquery with update clause should fail
 translatable	expressions/existentialSubqueries/ExistentialSubquery3/[1] Nested simple existential subquery
-translate_fail	expressions/existentialSubqueries/ExistentialSubquery3/[2] Nested full existential subquery
+translatable	expressions/existentialSubqueries/ExistentialSubquery3/[2] Nested full existential subquery
 translatable	expressions/existentialSubqueries/ExistentialSubquery3/[3] Nested full existential subquery with pattern predicate
 translatable	expressions/graph/Graph3/[1] Creating node without label
 translatable	expressions/graph/Graph3/[2] Creating node with two labels
@@ -1561,7 +1561,7 @@ translatable	expressions/graph/Graph5/[4] Conjunctive labels expression on nodes
 translatable	expressions/graph/Graph5/[4] Conjunctive labels expression on nodes with varying order and repeating labels [labelexp=:C:A, result=(:A:C)]
 translatable	expressions/graph/Graph5/[4] Conjunctive labels expression on nodes with varying order and repeating labels [labelexp=:C:A:A:C, result=(:A:C)]
 translatable	expressions/graph/Graph5/[4] Conjunctive labels expression on nodes with varying order and repeating labels [labelexp=:C:C:A, result=(:A:C)]
-translate_fail	expressions/graph/Graph5/[5] Label expression on null
+translatable	expressions/graph/Graph5/[5] Label expression on null
 translatable	expressions/graph/Graph6/[1] Statically access a property of a non-null node
 translatable	expressions/graph/Graph6/[2] Statically access a property of a optional non-null node
 translatable	expressions/graph/Graph6/[3] Statically access a property of a null node
