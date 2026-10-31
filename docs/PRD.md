@@ -1096,10 +1096,30 @@ with at compile time. It is ported from arango-gql-gateway's
   accessors and `toString` on values known at translate time. The result is
   bound as its Neo4j string form, and an invalid construction becomes
   `FAIL()`. A temporal expression over data or parameters still lowers through
-  `temporal.py`. On ArangoDB, 965 of the 1,004 `expressions/temporal`
-  scenarios pass. What remains needs a runtime temporal engine: accessors and
-  arithmetic on stored values (Temporal5, Temporal8). It also needs the
-  statement clock (`duration.inSeconds(date(), date())`, Temporal10 [12]).
+  `temporal.py`.
+- **Temporal strings at run time** (`TranslateOptions.temporal_strings`,
+  `translate(..., temporal_strings=True)`; `_translate_v0/temporal_strings.py`).
+  A temporal value is stored and returned as its Neo4j string. With the option
+  on, a string in one of those forms is read in AQL as the value it spells
+  wherever its type is only known at run time:
+  - accessors (`d.week`, `d.offsetMinutes`, `d.nanosecond`,
+    `dur.minutesOfHour`), at nanosecond precision;
+  - `+` / `-` of a temporal and a duration or of two durations, and `*` / `/`
+    of a duration and a number, with java.time's rules;
+  - `ORDER BY` and `<` / `<=` / `>` / `>=`: a Time by its instant on the day,
+    a DateTime by its instant.
+
+  The AQL is a small set of reusable snippets (parse, format, shift, scale,
+  sort key) over `LET`-bound subqueries. Calendar fields use `DATE_*` on the
+  date part, so years 0000 to 9999. A named zone keeps its stored offset in
+  arithmetic, since AQL has no zone rules.
+
+  The option is off by default: such a string is then text, and the AQL is
+  unchanged, which keeps LDBC and the goldens byte-identical. The TCK harness
+  turns it on. On ArangoDB, 984 of the 1,004 `expressions/temporal` scenarios
+  pass. What remains is CREATE … WITH … MATCH reading the collection it just
+  wrote (Temporal8 [1]-[5], AQL ERR 1579), and the statement clock
+  (`duration.inSeconds(date(), date())`, Temporal10 [12]).
 
 **A pattern whose last node is bound is read from that node.** In a MATCH
 after WITH or an OPTIONAL MATCH, `(m:Message)-[:HAS_TAG]->(tag)` with `tag`

@@ -15,6 +15,7 @@ from arango_query_core import (
 
 from .._antlr.CypherParser import CypherParser
 from ..parser import parse_cypher
+from . import temporal_strings
 from .aggregates import (
     aggregate_key,
     aggregate_variable,
@@ -24,6 +25,9 @@ from .aggregates import (
     sort_aggregates,
 )
 from .arithmetic import (
+    FLOAT,
+    INT,
+    NUMBER,
     STRING,
     _numeric_type,
     _static_type,
@@ -134,6 +138,7 @@ from .temporal import (
     compile_property_chain,
     compile_temporal_arithmetic,
     compile_temporal_function,
+    has_temporal_operand,
     is_duration,
     refuse_temporal_operands,
 )
@@ -194,11 +199,12 @@ def translate_v0(
     sort_types_token = SORT_VALUE_TYPES.set({})
 
     try:
-        result = _translate_v0_inner(
-            cypher,
-            mapping=mapping,
-            params=params,
-        )
+        with temporal_strings.translation_scope(opts.temporal_strings):
+            result = _translate_v0_inner(
+                cypher,
+                mapping=mapping,
+                params=params,
+            )
         _refuse_overwritten_params(params, result.bind_vars)
         # The variable-length guard reads one edge collection per traversal,
         # so it runs before several types expand into several collections.
@@ -3888,6 +3894,34 @@ def _refuse_out_of_scope_sort_vars(order_ctx: Any, *, visible: set[str]) -> None
             )
 
 
+def _compile_additive(terms: list[Any], ops: list[str], bind_vars: dict[str, Any]) -> str:
+    """``t0 ± t1 ± …`` with Cypher's ``+`` (numbers, strings, lists) and ``-``."""
+    refuse_temporal_operands(list(terms))
+    types = [_static_type(t) for t in terms]
+    if additive_chain_propagates_null(types, ops):
+        return null_propagating(
+            lambda: raw_additive_chain([_compile_expression(t, bind_vars) for t in terms], types, ops)
+        )
+    return compile_additive_chain(
+        [(_compile_expression(t, bind_vars), ty) for t, ty in zip(terms, types, strict=True)], ops
+    )
+
+
+def _maybe_temporal_pair(terms: list[Any]) -> bool:
+    """Two operands either of which may be a temporal string or a duration."""
+    return len(terms) == 2 and all(_static_type(t) in (None, STRING) for t in terms)
+
+
+def _maybe_duration_product(terms: list[Any]) -> bool:
+    """A possible duration string and a possible number (in either order)."""
+    types = [_static_type(t) for t in terms]
+    maybe_duration = (None, STRING)
+    maybe_number = (None, INT, FLOAT, NUMBER)
+    return (types[0] in maybe_duration and types[1] in maybe_number) or (
+        types[1] in maybe_duration and types[0] in maybe_number
+    )
+
+
 def _compile_order_by(
     order_ctx: CypherParser.OC_OrderContext,
     bind_vars: dict[str, Any],
@@ -3931,6 +3965,13 @@ def _compile_order_by(
             parts.append(f"{ranked} DESC" if descending else f"{ranked} ASC" if ascending else ranked)
             continue
         key = _code_point_sort_key(expr, static_type)
+        if (
+            temporal_strings.enabled()
+            and static_type in (None, STRING)
+            and _static_type(it.oC_Expression()) in (None, STRING)
+        ):
+            # A Time orders by its instant on the day, a DateTime by its instant.
+            key = temporal_strings.sort_key(expr, key)
         if not _is_obvious_non_null(expr):
             # Cypher sorts null after every value ascending and before every
             # value descending; AQL sorts null below every value. A first key
@@ -6170,7 +6211,17 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
             if op in ("<", "<=", ">", ">=") and (left, right) == (operands[i], operands[i + 1]):
                 # A known string orders by code point, as in ORDER BY.
                 compared = _code_point_operands(left, types[i], right, types[i + 1])
-            conjuncts.append(_compile_comparison(left, op, right, mode, compared=compared))
+            conjunct = _compile_comparison(left, op, right, mode, compared=compared)
+            if (
+                temporal_strings.enabled()
+                and op in ("<", "<=", ">", ">=")
+                and (left, right) == (operands[i], operands[i + 1])
+                and _static_type(operand_ctxs[i]) in (None, STRING)
+                and _static_type(operand_ctxs[i + 1]) in (None, STRING)
+            ):
+                # Two Times or two DateTimes held as strings compare by instant.
+                conjunct = temporal_strings.ordering(left, op, right, conjunct, negated=mode == "false")
+            conjuncts.append(conjunct)
         if len(conjuncts) == 1:
             return conjuncts[0]
         if mode is None:
@@ -6182,19 +6233,25 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
         if len(terms) == 1:
             return _compile_expression(terms[0], bind_vars)
         ops = [_extract_interleaved_op(ctx, i, {"+", "-"}) for i in range(1, len(terms))]
+        if temporal_strings.enabled() and _maybe_temporal_pair(terms):
+            # A temporal string and a duration, or two durations, read at
+            # run time (``temporal_strings``); else Cypher's usual + / -.
+            # A computed temporal or duration with anything else is a type
+            # error in Cypher; the run-time read covers every valid pair.
+            fallback = (
+                "null" if has_temporal_operand(list(terms)) else _compile_additive(terms, ops, bind_vars)
+            )
+            return temporal_strings.additive(
+                _compile_expression(terms[0], bind_vars),
+                ops[0],
+                _compile_expression(terms[1], bind_vars),
+                fallback,
+            )
         if any(is_duration(t) for t in terms):
             return compile_temporal_arithmetic(
                 list(terms), ops, compile_expr=lambda e: _compile_expression(e, bind_vars)
             )
-        refuse_temporal_operands(list(terms))
-        types = [_static_type(t) for t in terms]
-        if additive_chain_propagates_null(types, ops):
-            return null_propagating(
-                lambda: raw_additive_chain([_compile_expression(t, bind_vars) for t in terms], types, ops)
-            )
-        return compile_additive_chain(
-            [(_compile_expression(t, bind_vars), ty) for t, ty in zip(terms, types, strict=True)], ops
-        )
+        return _compile_additive(terms, ops, bind_vars)
 
     if isinstance(ctx, CypherParser.OC_MultiplyDivideModuloExpressionContext):
         terms = ctx.oC_PowerOfExpression()
@@ -6217,6 +6274,16 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
                 result_type = _numeric_type(result_type, terms[i])
             return result
 
+        if temporal_strings.enabled() and len(terms) == 2:
+            op = _extract_interleaved_op(ctx, 1, {"*", "/", "%"})
+            if op in ("*", "/") and _maybe_duration_product(terms):
+                # A duration string scaled by a number, read at run time.
+                return temporal_strings.multiplicative(
+                    _compile_expression(terms[0], bind_vars),
+                    op,
+                    _compile_expression(terms[1], bind_vars),
+                    null_propagating(build_product),
+                )
         return null_propagating(build_product)
 
     if isinstance(ctx, CypherParser.OC_PowerOfExpressionContext):

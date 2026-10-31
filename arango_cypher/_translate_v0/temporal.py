@@ -33,6 +33,7 @@ from typing import Any
 from arango_query_core import CoreError, MappingResolver
 
 from .._antlr.CypherParser import CypherParser
+from . import temporal_strings
 from .arithmetic import BOOL, FLOAT, INT, NUMBER, STRING, declared_property_type
 from .state import _active_resolver, _temporal_vars
 from .temporal_guard import TEMPORAL_ACCESSORS, temporal_properties
@@ -99,6 +100,9 @@ def compile_property_chain(
             atom, state = lower_accessor(atom, key), None
         elif state == "maybe" and key in INSTANT_ACCESSORS:
             atom, state = dispatch_accessor(atom, key), None
+        elif state in ("variable", None) and key in temporal_strings.ACCESSORS and temporal_strings.enabled():
+            # A value of unknown type: a temporal string is read at run time.
+            atom, state = temporal_strings.accessor(atom, key), None
         else:
             atom = f"{atom}.{key}"
             # ``n.creationDate`` of a variable: the mapping says it is temporal.
@@ -195,6 +199,14 @@ def temporal_operand(ctx: Any) -> tuple[str, str] | None:
         if child is None:
             return None
         ctx = child
+
+
+def has_temporal_operand(terms: list[Any]) -> bool:
+    """Whether a term is a temporal value or duration the query computes."""
+    return any(
+        (operand := temporal_operand(term)) is not None and operand[0] in ("computed", "duration")
+        for term in terms
+    )
 
 
 def refuse_temporal_operands(terms: list[Any]) -> None:

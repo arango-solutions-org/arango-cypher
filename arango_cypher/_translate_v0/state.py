@@ -92,3 +92,8 @@ class TranslateOptions:
     #: (``n.name``, ``count(*)``), as openCypher does, instead of the inferred
     #: short key (``name``, ``count``) existing clients read (``columns.py``).
     cypher_column_names: bool = False
+    #: Read a string in one of Neo4j's temporal forms (``'12:31+01:00'``,
+    #: ``'P1D'``) as the temporal value it spells where its type is only known
+    #: at run time: accessors, arithmetic with durations, ORDER BY
+    #: (``temporal_strings.py``). Off by default: such a string is then text.
+    temporal_strings: bool = False
