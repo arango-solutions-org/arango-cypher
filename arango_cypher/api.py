@@ -26,6 +26,7 @@ def _cache_key(
     registry: ExtensionRegistry | None = None,
     case_insensitive_inline_strings: bool = False,
     cypher_column_names: bool = False,
+    temporal_strings: bool = False,
 ) -> str:
     """Build a deterministic cache key from inputs."""
     h = hashlib.sha256()
@@ -38,6 +39,7 @@ def _cache_key(
     h.update(str(id(registry) if registry else 0).encode())
     h.update(str(case_insensitive_inline_strings).encode())
     h.update(str(cypher_column_names).encode())
+    h.update(str(temporal_strings).encode())
     # Folding on and off give different AQL for the same query.
     h.update(str(folding_enabled()).encode())
     return h.hexdigest()
@@ -130,6 +132,7 @@ def translate(
     params: dict[str, Any] | None = None,
     case_insensitive_inline_strings: bool = False,
     cypher_column_names: bool = False,
+    temporal_strings: bool = False,
 ) -> TranspiledQuery:
     """Translate a Cypher query to AQL using the provided schema mapping.
 
@@ -145,6 +148,12 @@ def translate(
     as written (``n.name``, ``count(*)``), as openCypher does. Off by
     default: the column is the inferred short key (``name``, ``count``) that
     existing API, UI and NL clients read.
+
+    *temporal_strings* reads a string in one of Neo4j's temporal forms
+    (``'12:31:14+01:00'``, ``'P1Y2M'``) as the temporal value it spells where
+    its type is only known at run time: accessors (``d.week``), ``+`` / ``-``
+    with durations, ``*`` / ``/`` of a duration, and ORDER BY by instant. Off
+    by default: such a string is then text.
     """
     if not isinstance(cypher, str) or not cypher.strip():
         raise CoreError("cypher must be a non-empty string", code="INVALID_ARGUMENT")
@@ -153,7 +162,14 @@ def translate(
         raise CoreError("mapping is required", code="INVALID_ARGUMENT")
 
     key = _cache_key(
-        cypher, mapping, params, extensions, registry, case_insensitive_inline_strings, cypher_column_names
+        cypher,
+        mapping,
+        params,
+        extensions,
+        registry,
+        case_insensitive_inline_strings,
+        cypher_column_names,
+        temporal_strings,
     )
     cached = _translate_cache.get(key)
     if cached is not None:
@@ -165,6 +181,7 @@ def translate(
         registry=registry,
         case_insensitive_inline_strings=case_insensitive_inline_strings,
         cypher_column_names=cypher_column_names,
+        temporal_strings=temporal_strings,
     )
     q = translate_v0(cypher, mapping=mapping, params=params, options=options)
 

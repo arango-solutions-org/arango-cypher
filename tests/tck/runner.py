@@ -4,6 +4,10 @@ Queries are translated with ``cypher_column_names=True``: an unaliased RETURN
 column is named by its expression as written (``n.name``, ``count(*)``), as
 the TCK's result tables name it. The translator's default (short inferred
 keys such as ``name``) is what API clients read, not what the TCK checks.
+
+They are also translated with ``temporal_strings=True``: the TCK stores
+temporal values, which the translator represents as strings in Neo4j's form,
+and reads them back with accessors, arithmetic and ORDER BY.
 """
 
 from __future__ import annotations
@@ -564,7 +568,9 @@ class _QueryResult:
 
 def _run_query(db: Any, cypher: str, mapping: MappingBundle, params: dict[str, Any]) -> _QueryResult:
     try:
-        out = translate(cypher, mapping=mapping, params=params or None, cypher_column_names=True)
+        out = translate(
+            cypher, mapping=mapping, params=params or None, cypher_column_names=True, temporal_strings=True
+        )
     except Exception as e:  # CoreError and anything else the translator raises
         return _QueryResult(query=cypher, error=e, stage="translate")
     try:

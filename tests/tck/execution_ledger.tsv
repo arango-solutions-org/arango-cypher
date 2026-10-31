@@ -909,13 +909,13 @@ passed	clauses/with-orderBy/WithOrderBy1/[11] Sort dates in ascending order
 passed	clauses/with-orderBy/WithOrderBy1/[12] Sort dates in descending order
 passed	clauses/with-orderBy/WithOrderBy1/[13] Sort local times in ascending order
 passed	clauses/with-orderBy/WithOrderBy1/[14] Sort local times in descending order
-execution_failure	clauses/with-orderBy/WithOrderBy1/[15] Sort times in ascending order
-execution_failure	clauses/with-orderBy/WithOrderBy1/[16] Sort times in descending order
+passed	clauses/with-orderBy/WithOrderBy1/[15] Sort times in ascending order
+passed	clauses/with-orderBy/WithOrderBy1/[16] Sort times in descending order
 passed	clauses/with-orderBy/WithOrderBy1/[17] Sort local date times in ascending order
 passed	clauses/with-orderBy/WithOrderBy1/[18] Sort local date times in descending order
-execution_failure	clauses/with-orderBy/WithOrderBy1/[19] Sort date times in ascending order
+passed	clauses/with-orderBy/WithOrderBy1/[19] Sort date times in ascending order
 passed	clauses/with-orderBy/WithOrderBy1/[1] Sort booleans in ascending order
-execution_failure	clauses/with-orderBy/WithOrderBy1/[20] Sort date times in descending order
+passed	clauses/with-orderBy/WithOrderBy1/[20] Sort date times in descending order
 execution_failure	clauses/with-orderBy/WithOrderBy1/[21] Sort distinct types in ascending order
 execution_failure	clauses/with-orderBy/WithOrderBy1/[22] Sort distinct types in descending order
 passed	clauses/with-orderBy/WithOrderBy1/[23] Sort by a boolean variable projected from a node property in ascending order [sort=bool ASCENDING]
@@ -954,20 +954,20 @@ passed	clauses/with-orderBy/WithOrderBy1/[35] Sort by a local time variable proj
 passed	clauses/with-orderBy/WithOrderBy1/[35] Sort by a local time variable projected from a node property in ascending order [sort=time]
 passed	clauses/with-orderBy/WithOrderBy1/[36] Sort by a local time variable projected from a node property in descending order [sort=time DESCENDING]
 passed	clauses/with-orderBy/WithOrderBy1/[36] Sort by a local time variable projected from a node property in descending order [sort=time DESC]
-execution_failure	clauses/with-orderBy/WithOrderBy1/[37] Sort by a time variable projected from a node property in ascending order [sort=time ASCENDING]
-execution_failure	clauses/with-orderBy/WithOrderBy1/[37] Sort by a time variable projected from a node property in ascending order [sort=time ASC]
-execution_failure	clauses/with-orderBy/WithOrderBy1/[37] Sort by a time variable projected from a node property in ascending order [sort=time]
-execution_failure	clauses/with-orderBy/WithOrderBy1/[38] Sort by a time variable projected from a node property in descending order [sort=time DESCENDING]
-execution_failure	clauses/with-orderBy/WithOrderBy1/[38] Sort by a time variable projected from a node property in descending order [sort=time DESC]
+passed	clauses/with-orderBy/WithOrderBy1/[37] Sort by a time variable projected from a node property in ascending order [sort=time ASCENDING]
+passed	clauses/with-orderBy/WithOrderBy1/[37] Sort by a time variable projected from a node property in ascending order [sort=time ASC]
+passed	clauses/with-orderBy/WithOrderBy1/[37] Sort by a time variable projected from a node property in ascending order [sort=time]
+passed	clauses/with-orderBy/WithOrderBy1/[38] Sort by a time variable projected from a node property in descending order [sort=time DESCENDING]
+passed	clauses/with-orderBy/WithOrderBy1/[38] Sort by a time variable projected from a node property in descending order [sort=time DESC]
 passed	clauses/with-orderBy/WithOrderBy1/[39] Sort by a local date time variable projected from a node property in ascending order [sort=datetime ASCENDING]
 passed	clauses/with-orderBy/WithOrderBy1/[39] Sort by a local date time variable projected from a node property in ascending order [sort=datetime ASC]
 passed	clauses/with-orderBy/WithOrderBy1/[39] Sort by a local date time variable projected from a node property in ascending order [sort=datetime]
 passed	clauses/with-orderBy/WithOrderBy1/[3] Sort integers in ascending order
 passed	clauses/with-orderBy/WithOrderBy1/[40] Sort by a local date time variable projected from a node property in descending order [sort=datetime DESCENDING]
 passed	clauses/with-orderBy/WithOrderBy1/[40] Sort by a local date time variable projected from a node property in descending order [sort=datetime DESC]
-execution_failure	clauses/with-orderBy/WithOrderBy1/[41] Sort by a date time variable projected from a node property in ascending order [sort=datetime ASCENDING]
-execution_failure	clauses/with-orderBy/WithOrderBy1/[41] Sort by a date time variable projected from a node property in ascending order [sort=datetime ASC]
-execution_failure	clauses/with-orderBy/WithOrderBy1/[41] Sort by a date time variable projected from a node property in ascending order [sort=datetime]
+passed	clauses/with-orderBy/WithOrderBy1/[41] Sort by a date time variable projected from a node property in ascending order [sort=datetime ASCENDING]
+passed	clauses/with-orderBy/WithOrderBy1/[41] Sort by a date time variable projected from a node property in ascending order [sort=datetime ASC]
+passed	clauses/with-orderBy/WithOrderBy1/[41] Sort by a date time variable projected from a node property in ascending order [sort=datetime]
 passed	clauses/with-orderBy/WithOrderBy1/[42] Sort by a date time variable projected from a node property in descending order [sort=datetime DESCENDING]
 passed	clauses/with-orderBy/WithOrderBy1/[42] Sort by a date time variable projected from a node property in descending order [sort=datetime DESC]
 passed	clauses/with-orderBy/WithOrderBy1/[43] Sort by a variable that is only partially orderable on a non-distinct binding table [dir=ASC, x=0]
@@ -1007,14 +1007,14 @@ passed	clauses/with-orderBy/WithOrderBy2/[11] Sort by a date expression in ascen
 passed	clauses/with-orderBy/WithOrderBy2/[11] Sort by a date expression in ascending order [sort=a.date + duration({months: 1, days: 2})]
 passed	clauses/with-orderBy/WithOrderBy2/[12] Sort by a date expression in descending order [sort=a.date + duration({months: 1, days: 2}) DESCENDING]
 passed	clauses/with-orderBy/WithOrderBy2/[12] Sort by a date expression in descending order [sort=a.date + duration({months: 1, days: 2}) DESC]
-execution_failure	clauses/with-orderBy/WithOrderBy2/[13] Sort by a local time expression in ascending order [sort=a.time + duration({minutes: 6}) ASCENDING]
-execution_failure	clauses/with-orderBy/WithOrderBy2/[13] Sort by a local time expression in ascending order [sort=a.time + duration({minutes: 6}) ASC]
-execution_failure	clauses/with-orderBy/WithOrderBy2/[13] Sort by a local time expression in ascending order [sort=a.time + duration({minutes: 6})]
-execution_failure	clauses/with-orderBy/WithOrderBy2/[14] Sort by a local time expression in descending order [sort=a.time + duration({minutes: 6}) DESCENDING]
-execution_failure	clauses/with-orderBy/WithOrderBy2/[14] Sort by a local time expression in descending order [sort=a.time + duration({minutes: 6}) DESC]
-execution_failure	clauses/with-orderBy/WithOrderBy2/[15] Sort by a time expression in ascending order [sort=a.time + duration({minutes: 6}) ASCENDING]
-execution_failure	clauses/with-orderBy/WithOrderBy2/[15] Sort by a time expression in ascending order [sort=a.time + duration({minutes: 6}) ASC]
-execution_failure	clauses/with-orderBy/WithOrderBy2/[15] Sort by a time expression in ascending order [sort=a.time + duration({minutes: 6})]
+passed	clauses/with-orderBy/WithOrderBy2/[13] Sort by a local time expression in ascending order [sort=a.time + duration({minutes: 6}) ASCENDING]
+passed	clauses/with-orderBy/WithOrderBy2/[13] Sort by a local time expression in ascending order [sort=a.time + duration({minutes: 6}) ASC]
+passed	clauses/with-orderBy/WithOrderBy2/[13] Sort by a local time expression in ascending order [sort=a.time + duration({minutes: 6})]
+passed	clauses/with-orderBy/WithOrderBy2/[14] Sort by a local time expression in descending order [sort=a.time + duration({minutes: 6}) DESCENDING]
+passed	clauses/with-orderBy/WithOrderBy2/[14] Sort by a local time expression in descending order [sort=a.time + duration({minutes: 6}) DESC]
+passed	clauses/with-orderBy/WithOrderBy2/[15] Sort by a time expression in ascending order [sort=a.time + duration({minutes: 6}) ASCENDING]
+passed	clauses/with-orderBy/WithOrderBy2/[15] Sort by a time expression in ascending order [sort=a.time + duration({minutes: 6}) ASC]
+passed	clauses/with-orderBy/WithOrderBy2/[15] Sort by a time expression in ascending order [sort=a.time + duration({minutes: 6})]
 passed	clauses/with-orderBy/WithOrderBy2/[16] Sort by a time expression in descending order [sort=a.time + duration({minutes: 6}) DESCENDING]
 passed	clauses/with-orderBy/WithOrderBy2/[16] Sort by a time expression in descending order [sort=a.time + duration({minutes: 6}) DESC]
 passed	clauses/with-orderBy/WithOrderBy2/[17] Sort by a local date time expression in ascending order [sort=a.datetime + duration({days: 4, minutes: 6}) ASCENDING]
@@ -3414,13 +3414,13 @@ passed	expressions/temporal/Temporal4/[7] Should store local date time [temporal
 passed	expressions/temporal/Temporal4/[8] Should store local date time array [temporal=[localdatetime({year: 1913})], result=['1913-01-01T00:00']]
 passed	expressions/temporal/Temporal4/[8] Should store local date time array [temporal=[localdatetime({year: 1914}), localdatetime({year: 1915}), localdatetime({year: 1916})], result=['1914-01-01T00:00', '1915-01-01T00:00', '1916-01-01T00:00']]
 passed	expressions/temporal/Temporal4/[9] Should store date time [temporal=datetime({year: 1912}), result='1912-01-01T00:00Z']
-execution_failure	expressions/temporal/Temporal5/[1] Should provide accessors for date
-execution_failure	expressions/temporal/Temporal5/[2] Should provide accessors for date in last weekYear
-execution_failure	expressions/temporal/Temporal5/[3] Should provide accessors for local time
-execution_failure	expressions/temporal/Temporal5/[4] Should provide accessors for time
-execution_failure	expressions/temporal/Temporal5/[5] Should provide accessors for local date time
-execution_failure	expressions/temporal/Temporal5/[6] Should provide accessors for date time
-execution_failure	expressions/temporal/Temporal5/[7] Should provide accessors for duration
+passed	expressions/temporal/Temporal5/[1] Should provide accessors for date
+passed	expressions/temporal/Temporal5/[2] Should provide accessors for date in last weekYear
+passed	expressions/temporal/Temporal5/[3] Should provide accessors for local time
+passed	expressions/temporal/Temporal5/[4] Should provide accessors for time
+passed	expressions/temporal/Temporal5/[5] Should provide accessors for local date time
+passed	expressions/temporal/Temporal5/[6] Should provide accessors for date time
+passed	expressions/temporal/Temporal5/[7] Should provide accessors for duration
 passed	expressions/temporal/Temporal6/[1] Should serialize date
 passed	expressions/temporal/Temporal6/[2] Should serialize local time
 passed	expressions/temporal/Temporal6/[3] Should serialize time
@@ -3471,18 +3471,18 @@ translation_failure	expressions/temporal/Temporal8/[4] Should add or subtract du
 translation_failure	expressions/temporal/Temporal8/[5] Should add or subtract duration to or from date time [map={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, sum='1984-10-29T04:20:24.000000001+01:00', diff='1984-09-24T20:42:04.000000001+01:00']
 translation_failure	expressions/temporal/Temporal8/[5] Should add or subtract duration to or from date time [map={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 2}, sum='1997-03-26T04:44:24.000000003+01:00', diff='1972-04-26T20:18:03.999999999+01:00']
 translation_failure	expressions/temporal/Temporal8/[5] Should add or subtract duration to or from date time [map={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, sum='1997-10-11T22:29:27.500000004+01:00', diff='1971-10-12T02:33:00.499999998+01:00']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, map2={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, sum='P2M-28DT31H38M20S', diff='PT0S']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, map2={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, sum='P12Y6MT32H2M20.000000001S', diff='P-12Y-4M-28DT-24M-0.000000001S']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, map2={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, sum='P13Y15DT49H47M23.500000003S', diff='P-12Y-10M-43DT-18H-9M-3.500000003S']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, map2={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, sum='P12Y6MT32H2M20.000000001S', diff='P12Y4M28DT24M0.000000001S']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, map2={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, sum='P24Y10M28DT32H26M20.000000002S', diff='PT0S']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, map2={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, sum='P25Y4M43DT50H11M23.500000004S', diff='P-6M-15DT-17H-45M-3.500000002S']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, map2={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, sum='P13Y15DT49H47M23.500000003S', diff='P12Y10M43DT18H9M3.500000003S']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, map2={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, sum='P25Y4M43DT50H11M23.500000004S', diff='P6M15DT17H45M3.500000002S']
-execution_failure	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, map2={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, sum='P25Y10M58DT67H56M27.000000006S', diff='PT0S']
-execution_failure	expressions/temporal/Temporal8/[7] Should multiply or divide durations by numbers [num1=0.5, num2=0.5, prod='P6Y2M22DT13H21M8S', div='P24Y10M28DT32H26M20.000000002S']
-execution_failure	expressions/temporal/Temporal8/[7] Should multiply or divide durations by numbers [num1=1, num2=1, prod='P12Y5M14DT16H13M10.000000001S', div='P12Y5M14DT16H13M10.000000001S']
-execution_failure	expressions/temporal/Temporal8/[7] Should multiply or divide durations by numbers [num1=2, num2=2, prod='P24Y10M28DT32H26M20.000000002S', div='P6Y2M22DT13H21M8S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, map2={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, sum='P2M-28DT31H38M20S', diff='PT0S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, map2={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, sum='P12Y6MT32H2M20.000000001S', diff='P-12Y-4M-28DT-24M-0.000000001S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, map2={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, sum='P13Y15DT49H47M23.500000003S', diff='P-12Y-10M-43DT-18H-9M-3.500000003S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, map2={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, sum='P12Y6MT32H2M20.000000001S', diff='P12Y4M28DT24M0.000000001S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, map2={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, sum='P24Y10M28DT32H26M20.000000002S', diff='PT0S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, map2={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, sum='P25Y4M43DT50H11M23.500000004S', diff='P-6M-15DT-17H-45M-3.500000002S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, map2={months: 1, days: -14, hours: 16, minutes: -12, seconds: 70}, sum='P13Y15DT49H47M23.500000003S', diff='P12Y10M43DT18H9M3.500000003S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, map2={years: 12, months: 5, days: 14, hours: 16, minutes: 12, seconds: 70, nanoseconds: 1}, sum='P25Y4M43DT50H11M23.500000004S', diff='P6M15DT17H45M3.500000002S']
+passed	expressions/temporal/Temporal8/[6] Should add or subtract durations [map1={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, map2={years: 12.5, months: 5.5, days: 14.5, hours: 16.5, minutes: 12.5, seconds: 70.5, nanoseconds: 3}, sum='P25Y10M58DT67H56M27.000000006S', diff='PT0S']
+passed	expressions/temporal/Temporal8/[7] Should multiply or divide durations by numbers [num1=0.5, num2=0.5, prod='P6Y2M22DT13H21M8S', div='P24Y10M28DT32H26M20.000000002S']
+passed	expressions/temporal/Temporal8/[7] Should multiply or divide durations by numbers [num1=1, num2=1, prod='P12Y5M14DT16H13M10.000000001S', div='P12Y5M14DT16H13M10.000000001S']
+passed	expressions/temporal/Temporal8/[7] Should multiply or divide durations by numbers [num1=2, num2=2, prod='P24Y10M28DT32H26M20.000000002S', div='P6Y2M22DT13H21M8S']
 passed	expressions/temporal/Temporal9/[1] Should truncate date [unit='century', other=date({year: 1984, month: 10, day: 11}), map={day: 2}, result='1900-01-02']
 passed	expressions/temporal/Temporal9/[1] Should truncate date [unit='century', other=date({year: 1984, month: 10, day: 11}), map={}, result='1900-01-01']
 passed	expressions/temporal/Temporal9/[1] Should truncate date [unit='century', other=datetime({year: 1984, month: 10, day: 11, hour: 12, minute: 31, second: 14, nanosecond: 645876123, timezone: '+01:00'}), map={day: 2}, result='1900-01-02']
