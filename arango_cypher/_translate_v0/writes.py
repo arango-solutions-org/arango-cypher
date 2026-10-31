@@ -619,14 +619,19 @@ def _translate_mutating_query(
         raise CoreError("MATCH is required before SET/DELETE", code="UNSUPPORTED")
 
     # Compile the MATCH body into FOR/FILTER lines. Only the first MATCH and its
-    # first pattern part are compiled, so anything else that would narrow the
-    # rows written — another reading clause, another pattern part — must be
-    # refused: ignoring it writes (or deletes) more than the query asks for.
+    # first pattern part are compiled here, so anything else that would narrow
+    # the rows written must be refused: ignoring it writes (or deletes) more
+    # than the query asks for. Several reading clauses compile as a pipeline.
     if len(reading_clauses) > 1:
-        raise CoreError(
-            "SET/DELETE/REMOVE after more than one reading clause is not supported: only the first "
-            "MATCH would be applied, writing rows the others exclude",
-            code="UNSUPPORTED",
+        from .pipeline_writes import translate_multi_reading_mutation
+
+        return translate_multi_reading_mutation(
+            spq,
+            set_clauses=set_clauses,
+            delete_clauses=delete_clauses,
+            remove_clauses=remove_clauses,
+            resolver=resolver,
+            bind_vars=bind_vars,
         )
     mc = match_ctxs[0]
     pattern = mc.oC_Pattern()

@@ -14,6 +14,7 @@ from arango_cypher import translate
 from arango_cypher._translate_v0.merge_bindings import endpoint_action_lines
 from arango_cypher._translate_v0.merge_docs import MapAction, insert_document, update_clause, upsert_options
 from arango_cypher._translate_v0.pipeline_deletes import needs_pipeline_delete
+from arango_cypher._translate_v0.pipeline_writes import nullable_vars
 from arango_cypher.parser import parse_cypher
 from tests.helpers.mapping_fixtures import mapping_bundle_for
 
@@ -197,3 +198,21 @@ def test_unbound_endpoint_merges_it_does_not_cover_are_refused(cypher: str, matc
     with pytest.raises(CoreError, match=match):
         _aql(cypher)
 
+
+# -- SET / REMOVE after several reading clauses --------------------------------
+
+
+def test_remove_after_optional_match_skips_the_null_rows() -> None:
+    aql = _aql("MATCH (n:User) OPTIONAL MATCH (n)-[r:FOLLOWS]->() REMOVE r.w RETURN n")
+    assert "LET _set_r = (FOR _w IN (r == null ? [] : [r]) UPDATE _w WITH" in aql
+    assert aql.rstrip().endswith("RETURN n")
+
+
+def test_set_after_two_matches_writes_in_the_inner_loop() -> None:
+    aql = _aql("MATCH (a:User) MATCH (b:Doc) SET a.x = b.x")
+    assert aql.index("FOR b IN") < aql.index("UPDATE a WITH {x: b.x}")
+
+
+def test_nullable_vars_follows_optional_bindings_and_aliases() -> None:
+    lines = ["FOR n IN c", "  LET r = _opt_row.r", "  LET m = _opt_row2.m", "  LET x = r", "  LET y = n"]
+    assert nullable_vars(lines) == {"r", "m", "x"}

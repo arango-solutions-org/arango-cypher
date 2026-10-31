@@ -941,9 +941,14 @@ variables writing one collection (`SET a.x = 1, b.x = 2` with `a`, `b` both
 `:User`), a nested property (`SET n.a.b` wrote `n.b`), a variable-length
 relationship, a variable not bound by the first `MATCH` pattern (such as one
 from `OPTIONAL MATCH`), `SET n:Label` under a mapping that cannot store a second
-label, and a write that follows more than one reading clause or a `MATCH` with
-several pattern parts. Only the first would be applied, writing rows the others
-exclude. `REMOVE n:Label` is skipped under such a mapping, as it always was.
+label, and a write that follows a `MATCH` with several pattern parts. Only the
+first would be applied, writing rows the others exclude. A write after several
+reading clauses (`MATCH (n) OPTIONAL MATCH (n)-[r]->() REMOVE r.num RETURN n`,
+TCK Remove1 [6]; `MATCH (a) MATCH (b) SET a.x = b.x`) compiles them as a
+pipeline and writes after them (`translate_multi_reading_mutation`); a
+variable an OPTIONAL MATCH leaves null is written over `(x == null ? [] :
+[x])`, since SET, REMOVE and DELETE of null do nothing — after a WITH too
+(`nullable_vars` in `pipeline_writes.py`). `REMOVE n:Label` is skipped under such a mapping, as it always was.
 
 A Cypher property is never null: `SET n.p = null`, a null entry of a `+=` map
 or of a parameter map removes the property (`UPDATE … OPTIONS {keepNull:

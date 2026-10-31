@@ -47,14 +47,7 @@ def test_relationship_properties_are_filters():
     assert "FILTER (k.creationDate == 5)" in aql
 
 
-@pytest.mark.parametrize(
-    "cypher,fragment",
-    [
-        ("MATCH (a:Person {id: 1}) UNWIND [1, 2] AS x SET a.n = x", "more than one reading clause"),
-    ],
-)
-def test_ignored_narrowing_is_refused(cypher, fragment):
-    with pytest.raises(CoreError) as exc:
-        _t(cypher, "pg")
-    assert exc.value.code == "UNSUPPORTED"
-    assert fragment in str(exc.value)
+def test_a_write_after_several_reading_clauses_applies_every_one():
+    """The UNWIND used to be ignored (and the query refused); it now loops before the write."""
+    aql = _t("MATCH (a:Person {id: 1}) UNWIND [1, 2] AS x SET a.n = x", "pg").aql
+    assert aql.index("FOR x IN [1,2]") < aql.index("UPDATE a WITH {n: x}")

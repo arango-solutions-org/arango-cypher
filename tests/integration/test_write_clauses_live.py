@@ -278,3 +278,9 @@ def test_a_pattern_merge_writes_lpg_endpoints_in_one_insert(db: Any) -> None:
     (edge,) = list(db.collection("edges").all())
     assert (edge["_from"], edge["_to"], edge["type"]) == (new["q"]["_id"], new["p"]["_id"], "FOLLOWS")
 
+
+def test_remove_after_optional_match_ignores_the_rows_it_did_not_match(db: Any) -> None:
+    """TCK Remove1 [6]: REMOVE of null does nothing; the edge of 'a' loses w."""
+    rows = _run(db, "MATCH (n:User) OPTIONAL MATCH (n)-[r:FOLLOWS]->() REMOVE r.w RETURN n.name AS name")
+    assert sorted(r["name"] for r in rows) == ["a", "b"]
+    assert _edge(db, "e") == {"_from": "users/a", "_to": "users/b"}
