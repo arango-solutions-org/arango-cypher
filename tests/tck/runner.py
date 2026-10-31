@@ -128,6 +128,12 @@ def _extract_labels_and_types(cypher: str) -> tuple[set[str], set[str]]:
     for m in re.finditer(r"\(\s*\w*\s*((?:\s*:\s*[A-Za-z_]\w*)+)", cypher):
         for lab in re.findall(r":\s*([A-Za-z_]\w*)", m.group(1)):
             labels.add(lab)
+    # A label predicate in an expression: ``WHERE m:NonExistent``, ``RETURN a:B``.
+    # (A map entry ``{k: v}`` with a variable value also matches; mapping an
+    # extra label is harmless.)
+    for m in re.finditer(r"(?<![\w.$`[])[A-Za-z_]\w*((?:[ \t]*:[ \t]*[A-Za-z_]\w*)+)", cypher):
+        for lab in re.findall(r":\s*([A-Za-z_]\w*)", m.group(1)):
+            labels.add(lab)
     # ``[:T]``, ``[r: T]``, ``[:T|U]``, ``[:T|:U]``.
     for m in re.finditer(r"\[\s*\w*\s*:\s*([A-Za-z_]\w*(?:\s*\|\s*:?\s*[A-Za-z_]\w*)*)", cypher):
         for rel_type in re.findall(r"[A-Za-z_]\w*", m.group(1)):

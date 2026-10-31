@@ -53,3 +53,21 @@ def test_empty_interval_rewrite():
 def test_unwind_variable_is_in_scope_for_return_star():
     aql = _aql("WITH [1, 2] AS list UNWIND list AS x RETURN *")
     assert "RETURN {list: list, x: x}" in aql
+
+
+def test_edge_uniqueness_across_groups():
+    from arango_cypher._translate_v0.core import edge_uniqueness_across
+
+    assert edge_uniqueness_across([["_path.edges[0]", "r_2"]], singles=["r"]) == [
+        "_path.edges[0]._id != r._id",
+        "r_2._id != r._id",
+    ]
+    assert edge_uniqueness_across([["..._vp.edges"], ["e"]], singles=[]) == ["e._id NOT IN _vp.edges[*]._id"]
+    assert edge_uniqueness_across([["...a.edges"], ["...b.edges"]], singles=[]) == [
+        "LENGTH(INTERSECTION(a.edges[*]._id, b.edges[*]._id)) == 0"
+    ]
+
+
+def test_undirected_merged_hops_keep_edges_distinct_from_earlier_ones():
+    aql = _aql("MATCH (n:User)-[:FOLLOWS]->(m)-[:FOLLOWS]-(o)-[:FOLLOWS]-(p) RETURN p")
+    assert "._id != r._id" in aql

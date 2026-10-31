@@ -34,11 +34,6 @@ from tests.helpers.mapping_fixtures import mapping_bundle_for
         # but multi-type edges remain unsupported.
         # Expression compiler unsupported shapes
         (
-            "MATCH (n:User) WHERE n.id = $1 RETURN n",
-            "UNSUPPORTED",
-            "Positional parameters not supported",
-        ),
-        (
             "MATCH (n:User) WHERE unknownFunc(n.age) = 1 RETURN n",
             "UNSUPPORTED",
             "Unsupported function",

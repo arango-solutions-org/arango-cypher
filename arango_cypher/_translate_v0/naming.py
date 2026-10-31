@@ -177,6 +177,9 @@ def _reject_unsafe_escaped_names(tree: Any) -> None:
 def _aql_bind_name(parameter: str) -> str:
     """Return the AQL bind reference for a Cypher parameter (``$name``)."""
     name = _strip_label_backticks(parameter[1:])
+    if name.isdigit():
+        # A positional parameter (``$0``): AQL bind names may be all digits.
+        return f"@{name}"
     if not _BIND_NAME_RE.fullmatch(name):
         raise CoreError(
             f"Parameter {parameter[:_SHOWN_NAME_CHARS]} is not a valid AQL bind parameter "

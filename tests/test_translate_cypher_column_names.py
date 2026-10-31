@@ -88,7 +88,8 @@ def test_optional_match_null_row_uses_the_same_keys():
         mapping=mapping_bundle_for("lpg"),
         cypher_column_names=True,
     ).aql
-    assert '[{"n.name": null, "n.age": null}]' in aql
+    # The null row is the projection of null variables, so it has the same keys.
+    assert "[{}]" in aql and 'RETURN {"n.name": n.name, "n.age": n.age}' in aql
 
 
 def test_order_by_and_grouping_still_resolve():

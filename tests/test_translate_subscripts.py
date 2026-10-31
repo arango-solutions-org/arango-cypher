@@ -40,6 +40,23 @@ def test_nested_guards_use_distinct_names():
     assert "FOR _sb0 IN" in outer and "FOR _sb1 IN" in outer
 
 
+def test_positional_parameters_bind_by_number():
+    """``$1`` is AQL's ``@1`` (bind names may be all digits); it used to be refused."""
+    out = translate(
+        "MATCH (n:User) WHERE n.id = $1 RETURN n", mapping=mapping_bundle_for("lpg"), params={"1": 7}
+    )
+    assert "@1" in out.aql and out.bind_vars["1"] == 7
+
+
+def test_only_optional_matches_project_the_null_row():
+    """``OPTIONAL MATCH (n) RETURN n.x IS NULL``: the RETURN sees n = null."""
+    aql = translate(
+        "OPTIONAL MATCH (n:User) RETURN n.x IS NULL AS missing", mapping=mapping_bundle_for("lpg")
+    ).aql
+    assert "[{}]" in aql and "LET n = _opt_row.n" in aql
+    assert aql.rstrip().endswith("RETURN {missing: (n.x == null)}")
+
+
 def test_in_binds_looser_than_subscript_and_slice():
     for q in ("WITH $l AS list RETURN 3 IN list[0] AS r", "WITH $l AS list RETURN 3 IN list[0..1] AS r"):
         aql = translate(q, mapping=mapping_bundle_for("lpg"), params={"l": [[1, 2, 3]]}).aql
