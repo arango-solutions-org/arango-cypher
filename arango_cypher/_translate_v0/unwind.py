@@ -9,6 +9,24 @@ from arango_query_core import AqlQuery, CoreError
 from .._antlr.CypherParser import CypherParser
 
 
+def unwind_source(expr_ctx: Any, compiled: str) -> str:
+    """The AQL list an ``UNWIND expr`` loops over.
+
+    Cypher unwinds null to no rows and any other non-list value to one row; an
+    AQL FOR over either is an error (ERR 1563). A null literal or a value the
+    query shows not to be a list is wrapped; a value of unknown type is
+    looped over as it is.
+    """
+    from .arithmetic import LIST, _static_type
+
+    if compiled.strip() == "null":
+        return "[]"
+    kind = _static_type(expr_ctx)
+    if kind is not None and kind != LIST:
+        return f"[{compiled}]"
+    return compiled
+
+
 def _translate_standalone_unwind(
     unwind_clauses: list[CypherParser.OC_UnwindContext],
     *,
@@ -20,7 +38,7 @@ def _translate_standalone_unwind(
 
     lines: list[str] = []
     for uw in unwind_clauses:
-        expr = _compile_expression(uw.oC_Expression(), bind_vars)
+        expr = unwind_source(uw.oC_Expression(), _compile_expression(uw.oC_Expression(), bind_vars))
         var = uw.oC_Variable().getText().strip()
         lines.append(f"FOR {var} IN {expr}")
 
@@ -40,7 +58,7 @@ def _compile_unwind_lines(
 
     lines: list[str] = []
     for uw in unwind_clauses:
-        expr = _compile_expression(uw.oC_Expression(), bind_vars)
+        expr = unwind_source(uw.oC_Expression(), _compile_expression(uw.oC_Expression(), bind_vars))
         var = uw.oC_Variable().getText().strip()
         lines.append(f"FOR {var} IN {expr}")
     return lines

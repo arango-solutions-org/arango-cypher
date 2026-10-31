@@ -818,10 +818,18 @@ variables when nothing matches (`n.missing IS NULL` is true).
 `x[i]` is Cypher's: unless the query shows a list read with an integer or a
 map read with a string, the subscript checks the run-time types and fails
 with the Cypher TypeError (`InvalidArgumentType`,
-`MapElementAccessByNonString`) where AQL returns null (`subscripts.py`); a
-subscript or slice binds tighter than `IN` (`3 IN list[0]`), which the
-openCypher 9 grammar chains the other way (`reassociate.py`). Positional
-parameters (`$0`, `$1`) are AQL's `@0`, `@1`.
+`MapElementAccessByNonString`) where AQL returns null (`subscripts.py`).
+Positional parameters (`$0`, `$1`) are AQL's `@0`, `@1`.
+
+`IN` has the precedence openCypher and Neo4j give it, not the openCypher 9
+grammar's (which listed it among the postfix list operators): it binds looser
+than `+`/`-` and than subscripts and slices, and tighter than comparison —
+`3 IN list[0]` is `3 IN (list[0])`, `[1] + 2 IN [3] + 4` is
+`([1] + 2) IN ([3] + 4)`, `false = true IN [true]` is `false = (true IN [true])`
+(`oC_InExpression` in `grammar/Cypher.g4`). Its value is Cypher's: null for a
+null list, false for an empty one, null for a null element, true when found,
+and otherwise null if the list holds a null (AQL's `null IN [null]` is true,
+its `5 IN [1, null]` false) (`three_valued.compile_in`).
 
 An aggregate may be nested in a projection expression (`head(collect(x))`,
 `100 * count(*) + count(x)`, `list + collect(x)`, `[y IN collect(x) | …]`):

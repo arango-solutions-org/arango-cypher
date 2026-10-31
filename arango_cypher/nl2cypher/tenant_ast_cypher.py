@@ -678,8 +678,13 @@ def _decode_property_path_lhs(cmp_ctx: Any) -> tuple[str | None, str | None]:
     property lookup on a variable atom — function calls, nested
     expressions, plain variables, plain literals, etc.
     """
+    # The comparison's operand is an ``IN`` level (a single operand when it
+    # holds no ``IN``) around the additive expression.
+    in_ctx = cmp_ctx.oC_InExpression() if hasattr(cmp_ctx, "oC_InExpression") else None
     add_subs = (
-        cmp_ctx.oC_AddOrSubtractExpression() if hasattr(cmp_ctx, "oC_AddOrSubtractExpression") else None
+        in_ctx.oC_AddOrSubtractExpression()
+        if in_ctx is not None and hasattr(in_ctx, "oC_AddOrSubtractExpression")
+        else None
     )
     if add_subs is None:
         return (None, None)
@@ -731,9 +736,7 @@ def _partial_comparison_rhs_pairs(cmp_ctx: Any) -> list[tuple[str, Any]]:
         if partial.getChildCount() == 0:
             continue
         op_text = partial.getChild(0).getText()
-        rhs_ctx = (
-            partial.oC_AddOrSubtractExpression() if hasattr(partial, "oC_AddOrSubtractExpression") else None
-        )
+        rhs_ctx = partial.oC_InExpression() if hasattr(partial, "oC_InExpression") else None
         if rhs_ctx is None:
             continue
         out.append((op_text, rhs_ctx))

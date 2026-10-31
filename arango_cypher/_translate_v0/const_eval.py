@@ -338,17 +338,24 @@ class Evaluator:
     # -- comparison --------------------------------------------------------
 
     def _comparison(self, ctx: CypherParser.OC_ComparisonExpressionContext) -> Any:
-        left = self.eval(ctx.oC_AddOrSubtractExpression())
+        left = self.eval(ctx.oC_InExpression())
         partials = ctx.oC_PartialComparisonExpression() or []
         if not partials:
             return left
         results: list[Any] = []
         for partial in partials:
             op = _children(partial)[0].getText()
-            right = self.eval(partial.oC_AddOrSubtractExpression())
+            right = self.eval(partial.oC_InExpression())
             results.append(_compare(op, left, right))
             left = right
         return results[0] if len(results) == 1 else cv.and3(results)
+
+    def _in(self, ctx: CypherParser.OC_InExpressionContext) -> Any:
+        terms = ctx.oC_AddOrSubtractExpression()
+        value = self.eval(terms[0])
+        for term in terms[1:]:
+            value = cv.in_list(value, self.eval(term))
+        return value
 
     # -- arithmetic --------------------------------------------------------
 
@@ -418,8 +425,6 @@ class Evaluator:
                 return fns.regex_match(value, other)
             raise NotConstant("string operator")
         if isinstance(op, CypherParser.OC_ListOperatorExpressionContext):
-            if op.IN() is not None:
-                return cv.in_list(value, self.eval(op.oC_PropertyOrLabelsExpression()))
             parts = _children(op)
             if any(_is_token(p) and p.getText() == ".." for p in parts):
                 start = end = None
@@ -632,6 +637,7 @@ _DISPATCH: dict[type, Callable[[Evaluator, Any], Any]] = {
     CypherParser.OC_AndExpressionContext: Evaluator._and,
     CypherParser.OC_NotExpressionContext: Evaluator._not,
     CypherParser.OC_ComparisonExpressionContext: Evaluator._comparison,
+    CypherParser.OC_InExpressionContext: Evaluator._in,
     CypherParser.OC_AddOrSubtractExpressionContext: Evaluator._add_sub,
     CypherParser.OC_MultiplyDivideModuloExpressionContext: Evaluator._mul_div,
     CypherParser.OC_PowerOfExpressionContext: Evaluator._power,

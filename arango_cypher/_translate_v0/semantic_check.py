@@ -41,6 +41,7 @@ from collections.abc import Iterator
 from antlr4 import ParserRuleContext
 
 from .._antlr.CypherParser import CypherParser
+from ..parser import deep_recursion
 from .semantic_aggregation import check_aggregation
 from .semantic_errors import semantic_error
 from .semantic_expr import ExpressionChecker, Scope, bare_variable, sole_operand, variable_name
@@ -72,7 +73,8 @@ def check_semantics(tree: CypherParser.OC_CypherContext) -> None:
     regular = tree.oC_Statement().oC_Query().oC_RegularQuery()
     if regular is None:  # a standalone CALL: nothing to scope
         return
-    _QueryChecker().regular_query(regular, imports=None)
+    with deep_recursion():
+        _QueryChecker().regular_query(regular, imports=None)
 
 
 class _Columns:

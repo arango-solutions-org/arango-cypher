@@ -421,6 +421,7 @@ def _single_child(ctx: Any) -> Any | None:
         (CypherParser.OC_OrExpressionContext, "oC_XorExpression"),
         (CypherParser.OC_XorExpressionContext, "oC_AndExpression"),
         (CypherParser.OC_AndExpressionContext, "oC_NotExpression"),
+        (CypherParser.OC_InExpressionContext, "oC_AddOrSubtractExpression"),
         (CypherParser.OC_AddOrSubtractExpressionContext, "oC_MultiplyDivideModuloExpression"),
         (CypherParser.OC_MultiplyDivideModuloExpressionContext, "oC_PowerOfExpression"),
         (CypherParser.OC_PowerOfExpressionContext, "oC_UnaryAddOrSubtractExpression"),
@@ -433,7 +434,7 @@ def _single_child(ctx: Any) -> Any | None:
     if isinstance(ctx, CypherParser.OC_NotExpressionContext):
         return None if ctx.NOT() else ctx.oC_ComparisonExpression()
     if isinstance(ctx, CypherParser.OC_ComparisonExpressionContext):
-        return None if ctx.oC_PartialComparisonExpression() else ctx.oC_AddOrSubtractExpression()
+        return None if ctx.oC_PartialComparisonExpression() else ctx.oC_InExpression()
     if isinstance(ctx, CypherParser.OC_UnaryAddOrSubtractExpressionContext):
         if any(ctx.getChild(i).getText() == "-" for i in range(ctx.getChildCount())):
             return None
