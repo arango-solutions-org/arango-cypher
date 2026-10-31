@@ -2930,11 +2930,12 @@ def _compile_bound_part(
     else:
         # A bound start still has to carry the labels and properties this
         # pattern gives it (``WITH a MATCH (a:X)-->(b)``): they filter.
+        bound_aql = out_env[u_cy]
         if node.oC_NodeLabels() is not None:
-            pred = _compile_label_predicate(u_aql, node.oC_NodeLabels(), bind_vars)
+            pred = _compile_label_predicate(bound_aql, node.oC_NodeLabels(), bind_vars)
             if pred is not None:
                 lines.append(f"    FILTER {pred}")
-        for f in _compile_node_pattern_properties(node, var=u_aql, bind_vars=bind_vars, var_env=out_env):
+        for f in _compile_node_pattern_properties(node, var=bound_aql, bind_vars=bind_vars, var_env=out_env):
             lines.append(f"    FILTER {f}")
 
     node_segments: list[str] = [f"[{u_aql}]"]
