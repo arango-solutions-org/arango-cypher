@@ -602,10 +602,14 @@ class Evaluator:
         name = ctx.oC_FunctionName().getText().strip().lower()
         if name in _AGGREGATES or ctx.DISTINCT() is not None:
             raise NotConstant(f"aggregate {name}")
+        arg_ctxs = ctx.oC_Expression() or []
+        if const_temporal.is_clock_difference(name, [a.getText() for a in arg_ctxs]):
+            # duration.between(date(), date()): one clock per statement.
+            return const_temporal.ZERO_DURATION
         impl = fns.FUNCTIONS.get(name)
         if impl is None:
             raise NotConstant(f"function {name}")
-        args = [self.eval(a) for a in ctx.oC_Expression() or []]
+        args = [self.eval(a) for a in arg_ctxs]
         return impl(args)
 
 
