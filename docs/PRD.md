@@ -978,8 +978,8 @@ represent — tracked as future work.
 
 ### 8.4 Not yet supported
 
-Generic Neo4j `CALL`
-procedures; durations held in variables, adding durations, `duration.between()`,
+Neo4j's built-in procedures (`db.labels()` …: only registered procedures run,
+see "Registered procedures" in §9); durations held in variables, adding durations, `duration.between()`,
 `time()` and time-of-day values (`a.time + duration(…)` is null), time zones,
 and selecting from another temporal value (`date({date: d, day: 3})`);
 `allShortestPaths()` and a
@@ -1116,10 +1116,14 @@ with at compile time. It is ported from arango-gql-gateway's
 
   The option is off by default: such a string is then text, and the AQL is
   unchanged, which keeps LDBC and the goldens byte-identical. The TCK harness
-  turns it on. On ArangoDB, 984 of the 1,004 `expressions/temporal` scenarios
+  turns it on. On ArangoDB, 989 of the 1,004 `expressions/temporal` scenarios
   pass. What remains is CREATE … WITH … MATCH reading the collection it just
-  wrote (Temporal8 [1]-[5], AQL ERR 1579), and the statement clock
-  (`duration.inSeconds(date(), date())`, Temporal10 [12]).
+  wrote (Temporal8 [1]-[5], AQL ERR 1579).
+- The same clock read twice folds: `duration.between(date(), date())` (or
+  `inMonths` / `inDays` / `inSeconds`) is `PT0S`, since Neo4j reads the
+  statement (or transaction) clock once (Temporal10 [12]). Only exactly the
+  same reading counts: the same kind, no arguments, the same source (`x()` is
+  `x.statement()`); `realtime()` and a time zone argument are not folded.
 
 **A pattern whose last node is bound is read from that node.** In a MATCH
 after WITH or an OPTIONAL MATCH, `(m:Message)-[:HAS_TAG]->(tag)` with `tag`
@@ -1177,6 +1181,33 @@ ArangoDB-native capabilities to Cypher, arity-checked and allow/deny-list aware:
   `values`, `flatten`, `parse_identifier`, `document`.
 - **Procedures** (`CALL arango.*`) — `fulltext`, `near`, `within`,
   `shortest_path`, `k_shortest_paths`.
+- **Registered procedures** (`arango_cypher/procedures.py`). Any other
+  procedure is registered on the `ExtensionRegistry` passed to `translate`, and
+  follows the invocation protocol. Its compiler receives a
+  `ProcedureInvocation`: the compiled arguments (or none for an implicit
+  `CALL p`), their static types, a resolver for implicit parameters, and
+  whether the call is standalone. It returns a `CompiledProcedure`: an AQL
+  expression of row objects and the column names.
+
+  Knowing the columns, the translator applies Cypher's rules:
+  - `YIELD a, b AS c [WHERE …]`;
+  - `YIELD *` and no `YIELD` in a standalone call (all columns);
+  - a void procedure in a query leaves the rows unchanged;
+  - an implicit call takes each input from the same-named parameter
+    (`MissingParameter` if it is absent);
+  - a `CALL` stage between `WITH`s.
+
+  These are rejected as Neo4j does: an unknown procedure
+  (`ProcedureNotFound`); the wrong number of arguments; an argument whose type
+  the query shows does not match; a missing output; `YIELD *` inside a query;
+  a yielded name already bound or yielded twice; an aggregate argument.
+
+  `TableProcedure` / `register_table_procedure(registry, "ns.p(in ::
+  INTEGER?) :: (out :: STRING?)", rows)` is a ready-made procedure whose result
+  is a fixed table keyed by its inputs, passed as a bind parameter. It suits
+  test doubles and fixed lookups. The TCK harness registers each
+  `there exists a procedure` fixture this way (`tests/tck/procedures.py`):
+  all 52 `clauses/call` scenarios pass.
 
 The entity resolver emits a structured `IndexAdvisory` whenever a fuzzy name probe
 runs against a field with no inverted/ArangoSearch coverage; the advisory carries a

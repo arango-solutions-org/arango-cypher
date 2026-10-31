@@ -2,58 +2,58 @@
 #   ./.venv/bin/python tests/tck/ledger.py --write
 # Format: <outcome>\t<scenario_id>, sorted by scenario_id.
 # Passing outcomes: correct_rejection, translatable
-harness_skip	clauses/call/Call1/[10] In-query call to procedure should fail if too many explicit argument are given
-harness_skip	clauses/call/Call1/[11] Standalone call to procedure should fail if implicit argument is missing
-harness_skip	clauses/call/Call1/[12] In-query call to procedure that has outputs fails if no outputs are yielded
+correct_rejection	clauses/call/Call1/[10] In-query call to procedure should fail if too many explicit argument are given
+correct_rejection	clauses/call/Call1/[11] Standalone call to procedure should fail if implicit argument is missing
+correct_rejection	clauses/call/Call1/[12] In-query call to procedure that has outputs fails if no outputs are yielded
 correct_rejection	clauses/call/Call1/[13] Standalone call to unknown procedure should fail
 correct_rejection	clauses/call/Call1/[14] In-query call to unknown procedure should fail
-harness_skip	clauses/call/Call1/[15] In-query procedure call should fail if shadowing an already bound variable
-harness_skip	clauses/call/Call1/[16] In-query procedure call should fail if one of the argument expressions uses an aggregation function
-harness_skip	clauses/call/Call1/[1] Standalone call to procedure that takes no arguments and yields no results
-harness_skip	clauses/call/Call1/[2] Standalone call to procedure that takes no arguments and yields no results, called with implicit arguments
-harness_skip	clauses/call/Call1/[3] In-query call to procedure that takes no arguments and yields no results
-harness_skip	clauses/call/Call1/[4] In-query call to procedure that takes no arguments and yields no results and consumes no rows
-harness_skip	clauses/call/Call1/[5] Standalone call to STRING procedure that takes no arguments
-harness_skip	clauses/call/Call1/[6] In-query call to STRING procedure that takes no arguments
-harness_skip	clauses/call/Call1/[7] Standalone call to procedure should fail if explicit argument is missing
-harness_skip	clauses/call/Call1/[8] In-query call to procedure should fail if explicit argument is missing
-harness_skip	clauses/call/Call1/[9] Standalone call to procedure should fail if too many explicit argument are given
-harness_skip	clauses/call/Call2/[1] In-query call to procedure with explicit arguments
-harness_skip	clauses/call/Call2/[2] Standalone call to procedure with explicit arguments
-harness_skip	clauses/call/Call2/[3] Standalone call to procedure with implicit arguments
-harness_skip	clauses/call/Call2/[4] In-query call to procedure that takes arguments fails when trying to pass them implicitly
-harness_skip	clauses/call/Call2/[5] Standalone call to procedure should fail if input type is wrong
-harness_skip	clauses/call/Call2/[6] In-query call to procedure should fail if input type is wrong
-harness_skip	clauses/call/Call3/[1] Standalone call to procedure with argument of type NUMBER accepts value of type INTEGER
-harness_skip	clauses/call/Call3/[2] In-query call to procedure with argument of type NUMBER accepts value of type INTEGER
-harness_skip	clauses/call/Call3/[3] Standalone call to procedure with argument of type NUMBER accepts value of type FLOAT
-harness_skip	clauses/call/Call3/[4] In-query call to procedure with argument of type NUMBER accepts value of type FLOAT
-harness_skip	clauses/call/Call3/[5] Standalone call to procedure with argument of type FLOAT accepts value of type INTEGER
-harness_skip	clauses/call/Call3/[6] In-query call to procedure with argument of type FLOAT accepts value of type INTEGER
-harness_skip	clauses/call/Call4/[1] Standalone call to procedure with null argument
-harness_skip	clauses/call/Call4/[2] In-query call to procedure with null argument
-harness_skip	clauses/call/Call5/[1] Explicit procedure result projection
-harness_skip	clauses/call/Call5/[2] Explicit procedure result projection with RETURN *
-harness_skip	clauses/call/Call5/[3] The order of yield items is irrelevant [yield=a, b]
-harness_skip	clauses/call/Call5/[3] The order of yield items is irrelevant [yield=b, a]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS a, b AS b, a=a, b=b]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS a, b AS d, a=a, b=d]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS a, b, a=a, b=b]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS b, b AS a, a=b, b=a]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS b, b AS d, a=b, b=d]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS c, b AS a, a=c, b=a]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS c, b AS b, a=c, b=b]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS c, b AS d, a=c, b=d]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS c, b, a=c, b=b]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a, b AS b, a=a, b=b]
-harness_skip	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a, b AS d, a=a, b=d]
-harness_skip	clauses/call/Call5/[5] Fail on renaming to an already bound variable name
-harness_skip	clauses/call/Call5/[6] Fail on renaming all outputs to the same variable name
-harness_skip	clauses/call/Call5/[7] Fail on in-query call to procedure with YIELD *
-harness_skip	clauses/call/Call5/[8] Allow standalone call to procedure with YIELD *
-harness_skip	clauses/call/Call6/[1] Calling the same STRING procedure twice using the same outputs in each call
-harness_skip	clauses/call/Call6/[2] Project procedure results between query scopes with WITH clause
-harness_skip	clauses/call/Call6/[3] Project procedure results between query scopes with WITH clause and rename the projection
+correct_rejection	clauses/call/Call1/[15] In-query procedure call should fail if shadowing an already bound variable
+correct_rejection	clauses/call/Call1/[16] In-query procedure call should fail if one of the argument expressions uses an aggregation function
+translatable	clauses/call/Call1/[1] Standalone call to procedure that takes no arguments and yields no results
+translatable	clauses/call/Call1/[2] Standalone call to procedure that takes no arguments and yields no results, called with implicit arguments
+translatable	clauses/call/Call1/[3] In-query call to procedure that takes no arguments and yields no results
+translatable	clauses/call/Call1/[4] In-query call to procedure that takes no arguments and yields no results and consumes no rows
+translatable	clauses/call/Call1/[5] Standalone call to STRING procedure that takes no arguments
+translatable	clauses/call/Call1/[6] In-query call to STRING procedure that takes no arguments
+correct_rejection	clauses/call/Call1/[7] Standalone call to procedure should fail if explicit argument is missing
+correct_rejection	clauses/call/Call1/[8] In-query call to procedure should fail if explicit argument is missing
+correct_rejection	clauses/call/Call1/[9] Standalone call to procedure should fail if too many explicit argument are given
+translatable	clauses/call/Call2/[1] In-query call to procedure with explicit arguments
+translatable	clauses/call/Call2/[2] Standalone call to procedure with explicit arguments
+translatable	clauses/call/Call2/[3] Standalone call to procedure with implicit arguments
+correct_rejection	clauses/call/Call2/[4] In-query call to procedure that takes arguments fails when trying to pass them implicitly
+correct_rejection	clauses/call/Call2/[5] Standalone call to procedure should fail if input type is wrong
+correct_rejection	clauses/call/Call2/[6] In-query call to procedure should fail if input type is wrong
+translatable	clauses/call/Call3/[1] Standalone call to procedure with argument of type NUMBER accepts value of type INTEGER
+translatable	clauses/call/Call3/[2] In-query call to procedure with argument of type NUMBER accepts value of type INTEGER
+translatable	clauses/call/Call3/[3] Standalone call to procedure with argument of type NUMBER accepts value of type FLOAT
+translatable	clauses/call/Call3/[4] In-query call to procedure with argument of type NUMBER accepts value of type FLOAT
+translatable	clauses/call/Call3/[5] Standalone call to procedure with argument of type FLOAT accepts value of type INTEGER
+translatable	clauses/call/Call3/[6] In-query call to procedure with argument of type FLOAT accepts value of type INTEGER
+translatable	clauses/call/Call4/[1] Standalone call to procedure with null argument
+translatable	clauses/call/Call4/[2] In-query call to procedure with null argument
+translatable	clauses/call/Call5/[1] Explicit procedure result projection
+translatable	clauses/call/Call5/[2] Explicit procedure result projection with RETURN *
+translatable	clauses/call/Call5/[3] The order of yield items is irrelevant [yield=a, b]
+translatable	clauses/call/Call5/[3] The order of yield items is irrelevant [yield=b, a]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS a, b AS b, a=a, b=b]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS a, b AS d, a=a, b=d]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS a, b, a=a, b=b]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS b, b AS a, a=b, b=a]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS b, b AS d, a=b, b=d]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS c, b AS a, a=c, b=a]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS c, b AS b, a=c, b=b]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS c, b AS d, a=c, b=d]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a AS c, b, a=c, b=b]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a, b AS b, a=a, b=b]
+translatable	clauses/call/Call5/[4] Rename outputs to unbound variable names [rename=a, b AS d, a=a, b=d]
+correct_rejection	clauses/call/Call5/[5] Fail on renaming to an already bound variable name
+correct_rejection	clauses/call/Call5/[6] Fail on renaming all outputs to the same variable name
+correct_rejection	clauses/call/Call5/[7] Fail on in-query call to procedure with YIELD *
+translatable	clauses/call/Call5/[8] Allow standalone call to procedure with YIELD *
+translatable	clauses/call/Call6/[1] Calling the same STRING procedure twice using the same outputs in each call
+translatable	clauses/call/Call6/[2] Project procedure results between query scopes with WITH clause
+translatable	clauses/call/Call6/[3] Project procedure results between query scopes with WITH clause and rename the projection
 translatable	clauses/create/Create1/[10] Create a single node with two properties and return them
 translatable	clauses/create/Create1/[11] Create a single node with null properties should not return those properties
 translatable	clauses/create/Create1/[12] CREATE does not lose precision on large integers
@@ -738,16 +738,16 @@ translatable	clauses/return-skip-limit/ReturnSkipLimit1/[2] Start the result fro
 translatable	clauses/return-skip-limit/ReturnSkipLimit1/[3] SKIP with an expression that does not depend on variables
 translatable	clauses/return-skip-limit/ReturnSkipLimit1/[4] Accept skip zero
 translatable	clauses/return-skip-limit/ReturnSkipLimit1/[5] SKIP with an expression that depends on variables should fail
-translatable	clauses/return-skip-limit/ReturnSkipLimit1/[6] Negative parameter for SKIP should fail
+correct_rejection	clauses/return-skip-limit/ReturnSkipLimit1/[6] Negative parameter for SKIP should fail
 correct_rejection	clauses/return-skip-limit/ReturnSkipLimit1/[7] Negative SKIP should fail
-translatable	clauses/return-skip-limit/ReturnSkipLimit1/[8] Floating point parameter for SKIP should fail
+correct_rejection	clauses/return-skip-limit/ReturnSkipLimit1/[8] Floating point parameter for SKIP should fail
 correct_rejection	clauses/return-skip-limit/ReturnSkipLimit1/[9] Floating point SKIP should fail
-translatable	clauses/return-skip-limit/ReturnSkipLimit2/[10] Negative parameter for LIMIT should fail
-translatable	clauses/return-skip-limit/ReturnSkipLimit2/[11] Negative parameter for LIMIT with ORDER BY should fail
+correct_rejection	clauses/return-skip-limit/ReturnSkipLimit2/[10] Negative parameter for LIMIT should fail
+correct_rejection	clauses/return-skip-limit/ReturnSkipLimit2/[11] Negative parameter for LIMIT with ORDER BY should fail
 correct_rejection	clauses/return-skip-limit/ReturnSkipLimit2/[12] Fail when using negative value in LIMIT 1
 correct_rejection	clauses/return-skip-limit/ReturnSkipLimit2/[13] Fail when using negative value in LIMIT 2
-translatable	clauses/return-skip-limit/ReturnSkipLimit2/[14] Floating point parameter for LIMIT should fail
-translatable	clauses/return-skip-limit/ReturnSkipLimit2/[15] Floating point parameter for LIMIT with ORDER BY should fail
+correct_rejection	clauses/return-skip-limit/ReturnSkipLimit2/[14] Floating point parameter for LIMIT should fail
+correct_rejection	clauses/return-skip-limit/ReturnSkipLimit2/[15] Floating point parameter for LIMIT with ORDER BY should fail
 correct_rejection	clauses/return-skip-limit/ReturnSkipLimit2/[16] Fail when using floating point in LIMIT 1
 correct_rejection	clauses/return-skip-limit/ReturnSkipLimit2/[17] Fail when using floating point in LIMIT 2
 translatable	clauses/return-skip-limit/ReturnSkipLimit2/[1] Limit to two hits
@@ -3019,11 +3019,11 @@ translatable	expressions/temporal/Temporal10/[11] Should handle when seconds and
 translatable	expressions/temporal/Temporal10/[11] Should handle when seconds and subseconds have different signs [lhs='12:34:56.3', rhs='12:34:54.7', result='PT-1.6S']
 translatable	expressions/temporal/Temporal10/[11] Should handle when seconds and subseconds have different signs [lhs='12:44:54.7', rhs='12:34:55.3', result='PT-9M-59.4S']
 translatable	expressions/temporal/Temporal10/[11] Should handle when seconds and subseconds have different signs [lhs='12:44:56', rhs='12:34:55.7', result='PT-10M-0.3S']
-translate_fail	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=date()]
-translate_fail	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=datetime()]
-translate_fail	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=localdatetime()]
-translate_fail	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=localtime()]
-translate_fail	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=time()]
+translatable	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=date()]
+translatable	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=datetime()]
+translatable	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=localdatetime()]
+translatable	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=localtime()]
+translatable	expressions/temporal/Temporal10/[12] Should compute durations with no difference [value=time()]
 translatable	expressions/temporal/Temporal10/[13] Should propagate null [func=duration.between]
 translatable	expressions/temporal/Temporal10/[13] Should propagate null [func=duration.inDays]
 translatable	expressions/temporal/Temporal10/[13] Should propagate null [func=duration.inMonths]
