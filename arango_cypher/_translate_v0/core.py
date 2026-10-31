@@ -46,6 +46,7 @@ from .calls import (
     _inject_in_query_calls,
     _translate_standalone_call,
     _translate_standalone_in_query_call,
+    in_query_call_lines,
 )
 from .columns import _active_cypher_column_names, object_key, written_column
 from .const_eval import _const_env, aql_number_literal, bind_with_constants, try_fold
@@ -1612,6 +1613,28 @@ def _translate_computational_multi_part(
         var_env[var] = aql_var
         forbidden.add(aql_var)
 
+    def _emit_procedure_call(iqc: CypherParser.OC_InQueryCallContext) -> None:
+        # Yielded names are fresh in AQL: a WITH may have dropped a name a
+        # later CALL yields again (Call6 [1]), and AQL may not reassign it.
+        names: dict[str, str] = {}
+
+        def aql_name(var: str) -> str:
+            names[var] = _pick_fresh_var(var, forbidden_vars=forbidden)
+            return names[var]
+
+        incoming = dict(var_env)
+        call_lines, yielded = in_query_call_lines(
+            iqc,
+            bind_vars,
+            row=_pick_fresh_var("_call_row", forbidden_vars=forbidden),
+            aql_name=aql_name,
+            rewrite=lambda expr: _rewrite_vars(expr, incoming) if incoming else expr,
+        )
+        lines.extend(call_lines)
+        var_env.update(names)
+        in_scope = list(_active_user_vars.get())
+        _active_user_vars.set([*in_scope, *(v for v in yielded if v not in in_scope)])
+
     def _emit_reading(rc: CypherParser.OC_ReadingClauseContext) -> None:
         call = subquery_call(rc)
         if call is not None:
@@ -1625,6 +1648,10 @@ def _translate_computational_multi_part(
                     lines=lines,
                 )
             )
+            return
+        iqc = rc.oC_InQueryCall()
+        if iqc is not None:
+            _emit_procedure_call(iqc)
             return
         uw = rc.oC_Unwind()
         if uw is None:
