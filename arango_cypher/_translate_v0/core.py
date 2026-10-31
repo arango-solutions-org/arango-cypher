@@ -92,6 +92,7 @@ from .naming import (
     _pick_fresh_var,
     _quote_aql_reserved_names,
     _reject_unsafe_escaped_names,
+    _rename_invalid_aql_variables,
     _rewrite_vars,
     _strip_label_backticks,
 )
@@ -266,6 +267,7 @@ def _translate_v0_inner(
         {i.name: i.kind for i in step.imports} if step is not None and step.rows_param is not None else None
     )
     check_semantics(tree, imports=step_imports)
+    _rename_invalid_aql_variables(tree)
     _quote_aql_reserved_names(tree)
     refuse_shortest_path_in_writes(tree)
     refuse_unsupported_subquery_calls(tree)

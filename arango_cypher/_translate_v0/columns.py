@@ -25,7 +25,8 @@ from .state import _object_rows
 #: ``TranslateOptions.cypher_column_names`` of the running translation.
 _active_cypher_column_names: ContextVar[bool] = ContextVar("_active_cypher_column_names", default=False)
 
-_AQL_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|`[^`]+`")
+#: A bare AQL object key: ``_001`` is not one (ERR 1501), so it is a string.
+_AQL_IDENTIFIER = re.compile(r"_*[A-Za-z][A-Za-z0-9_]*|`[^`]+`")
 
 
 def cypher_column_names() -> bool:
