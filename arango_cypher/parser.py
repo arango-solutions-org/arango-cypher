@@ -109,14 +109,17 @@ def deep_recursion() -> Iterator[None]:
     The parser and every tree walk (``getText``, the semantic check, the
     expression compiler) recurse once or twice per precedence level, 16 of
     them from an expression down to a list literal, so a few dozen nested
-    literals pass Python's default limit of 1000 frames. The limit is raised
-    for the duration, never lowered below one the caller set.
+    literals pass Python's default limit of 1000 frames.
+
+    The limit is raised to ``_PARSE_RECURSION_LIMIT`` once and never
+    restored. It is process-wide: restoring it on exit would race with
+    another thread still parsing deeply (the service translates
+    concurrently), which would then hit a spurious RecursionError. Raising
+    only ever increases it, so it is safe from any thread and never lowers a
+    limit the caller set higher. On Python 3.11+ a Python-to-Python call
+    does not consume C stack, so the higher limit is safe in worker threads
+    with the default thread stack size.
     """
-    limit = sys.getrecursionlimit()
-    if limit < _PARSE_RECURSION_LIMIT:
+    if sys.getrecursionlimit() < _PARSE_RECURSION_LIMIT:
         sys.setrecursionlimit(_PARSE_RECURSION_LIMIT)
-    try:
-        yield
-    finally:
-        if limit < _PARSE_RECURSION_LIMIT:
-            sys.setrecursionlimit(limit)
+    yield
