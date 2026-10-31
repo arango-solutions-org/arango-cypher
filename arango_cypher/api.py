@@ -74,6 +74,28 @@ class TranspiledQuery:
     def to_aql_query(self) -> AqlQuery:
         return AqlQuery(text=self.aql, bind_vars=self.bind_vars, debug=self.debug)
 
+    @classmethod
+    def from_aql_query(cls, q: AqlQuery) -> TranspiledQuery:
+        w: list[dict[str, Any]] = [{"message": m} for m in q.warnings] if q.warnings else []
+        return cls(aql=q.text, bind_vars=q.bind_vars, warnings=w, debug=q.debug)
+
+
+def translate_options(
+    extensions: ExtensionPolicy | None,
+    registry: ExtensionRegistry | None,
+    case_insensitive_inline_strings: bool,
+    cypher_column_names: bool,
+    temporal_strings: bool = False,
+) -> TranslateOptions:
+    """The :class:`TranslateOptions` of a :func:`translate` call's arguments."""
+    return TranslateOptions(
+        extensions=(extensions or ExtensionPolicy(enabled=False)),
+        registry=registry,
+        case_insensitive_inline_strings=case_insensitive_inline_strings,
+        cypher_column_names=cypher_column_names,
+        temporal_strings=temporal_strings,
+    )
+
 
 def get_cypher_profile() -> dict[str, Any]:
     """
@@ -154,7 +176,75 @@ def translate(
     its type is only known at run time: accessors (``d.week``), ``+`` / ``-``
     with durations, ``*`` / ``/`` of a duration, and ORDER BY by instant. Off
     by default: such a string is then text.
+
+    A query that AQL cannot run as one statement — a write followed by a read
+    of what it wrote, a DELETE beside a MERGE, several MERGEs on one
+    collection — raises :class:`CoreError` whose message says so and names
+    :func:`arango_cypher.translate_plan`, which compiles it into several
+    statements for :func:`arango_cypher.execute_plan` to run in one
+    transaction.
     """
+    try:
+        return _translate_one(
+            cypher,
+            mapping=mapping,
+            extensions=extensions,
+            registry=registry,
+            params=params,
+            case_insensitive_inline_strings=case_insensitive_inline_strings,
+            cypher_column_names=cypher_column_names,
+            temporal_strings=temporal_strings,
+        )
+    except CoreError as e:
+        hint = _plan_hint(
+            cypher,
+            mapping=mapping,
+            params=params,
+            options=translate_options(
+                extensions, registry, case_insensitive_inline_strings, cypher_column_names, temporal_strings
+            ),
+        )
+        if hint is None:
+            raise
+        raise CoreError(f"{e} {hint}", code=e.code) from e
+
+
+#: Appended to the error of a query a multi-statement plan can run.
+PLAN_HINT = (
+    "This query needs {n} AQL statements: use arango_cypher.translate_plan() and "
+    "arango_cypher.execute_plan() to run them in one transaction."
+)
+
+
+def _plan_hint(
+    cypher: str, *, mapping: MappingBundle | None, params: dict[str, Any] | None, options: TranslateOptions
+) -> str | None:
+    """:data:`PLAN_HINT` when *cypher*, which failed as one statement, runs as a plan."""
+    from .plans import lower_to_steps
+
+    if mapping is None or not isinstance(cypher, str):
+        return None
+    try:
+        steps = lower_to_steps(
+            cypher, mapping=mapping, params=params, options=options, wrap=TranspiledQuery.from_aql_query
+        )
+    except CoreError:
+        return None
+    return PLAN_HINT.format(n=len(steps)) if steps else None
+
+
+def _translate_one(
+    cypher: str,
+    *,
+    mapping: MappingBundle | None,
+    extensions: ExtensionPolicy | None,
+    registry: ExtensionRegistry | None,
+    params: dict[str, Any] | None,
+    case_insensitive_inline_strings: bool,
+    cypher_column_names: bool,
+    temporal_strings: bool = False,
+) -> TranspiledQuery:
+    """:func:`translate` without the plan hint: one statement, or the error."""
     if not isinstance(cypher, str) or not cypher.strip():
         raise CoreError("cypher must be a non-empty string", code="INVALID_ARGUMENT")
 
@@ -176,17 +266,11 @@ def translate(
         _translate_cache.move_to_end(key)
         return cached
 
-    options = TranslateOptions(
-        extensions=(extensions or ExtensionPolicy(enabled=False)),
-        registry=registry,
-        case_insensitive_inline_strings=case_insensitive_inline_strings,
-        cypher_column_names=cypher_column_names,
-        temporal_strings=temporal_strings,
+    options = translate_options(
+        extensions, registry, case_insensitive_inline_strings, cypher_column_names, temporal_strings
     )
     q = translate_v0(cypher, mapping=mapping, params=params, options=options)
-
-    w: list[dict[str, Any]] = [{"message": m} for m in q.warnings] if q.warnings else []
-    result = TranspiledQuery(aql=q.text, bind_vars=q.bind_vars, warnings=w, debug=q.debug)
+    result = TranspiledQuery.from_aql_query(q)
 
     _translate_cache[key] = result
     if len(_translate_cache) > _CACHE_MAX:
@@ -208,14 +292,22 @@ def execute(
     """Translate a Cypher query and execute the resulting AQL against *db*.
 
     *db* must be a ``python-arango`` ``Database`` instance (or compatible).
-    Returns the AQL cursor result.
+    Returns the AQL cursor of a query that fits one statement. A query that
+    needs several (:func:`arango_cypher.translate_plan`) runs as a plan in one
+    stream transaction (:func:`arango_cypher.execute_plan`), and its result
+    rows come back as a list.
     """
-    result = translate(
+    from .plan_exec import execute_plan
+    from .plans import translate_plan
+
+    plan = translate_plan(
         cypher,
         mapping=mapping,
         extensions=extensions,
         registry=registry,
         params=params,
     )
+    if not plan.is_single_statement:
+        return execute_plan(db, plan, batch_size=kwargs.get("batch_size"))
     executor = AqlExecutor(db=db)
-    return executor.execute(result.to_aql_query(), **kwargs)
+    return executor.execute(plan.steps[0].query.to_aql_query(), **kwargs)
