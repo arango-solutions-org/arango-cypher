@@ -843,6 +843,16 @@ relationship: one UPDATE per endpoint collection (two variables in LPG's one
 `vertices` collection share it), and a RETURN of that endpoint, which would
 show it without the SET, is refused (`merge_bindings.py`). An item on a
 variable the MERGE neither writes nor binds as an endpoint stays refused. A
+relationship MERGE matches on the relationship's properties as well as its
+endpoints and type (`MERGE (a)-[:T {name: 'r2'}]->(b)` does not match an
+`r1` edge; it used to). A relationship MERGE whose endpoints no earlier
+clause binds merges the whole pattern, as openCypher does, when it is the
+query's first clause: the pattern is read first (`_merge_found`), and if it
+is missing both nodes and the relationship are created — one INSERT per node
+collection, then the edge (`merge_patterns.py`). After another clause (each
+row would have to see the nodes earlier rows created), over several hops,
+or with ON CREATE / ON MATCH, it is refused (`NOT_IMPLEMENTED`); it used to
+compile to AQL reading undefined variables. A
 `SET n.p = v` after a node MERGE joins both the INSERT and the UPDATE
 document, after the ON CREATE / ON MATCH items; any other SET after a MERGE
 is refused); `FOREACH` (with `SET`, and — newly — `CREATE` / `DELETE`); and `WITH … SET`/`DELETE`/`REMOVE` on MATCH-bound document variables
@@ -998,7 +1008,8 @@ modifying it, nor write the same collection twice, within one query. Every
 multi-write form therefore *works when each write targets a distinct physical
 collection* and otherwise **fails closed with an actionable error** (e.g.
 same-collection multi-`MERGE`, repeated edge collections in a multi-hop `MERGE`,
-`MATCH`-prefixed multi-`MERGE`, unbound relationship endpoints, multi-collection
+`MATCH`-prefixed multi-`MERGE`, unbound relationship endpoints after another
+clause, multi-collection
 unlabeled mutation, `DETACH DELETE` inside `FOREACH`). No query ever silently
 writes the wrong collection. Same-collection multi-write needs a
 multi-statement/transaction execution model the single-`AqlQuery` output cannot

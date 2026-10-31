@@ -198,7 +198,7 @@ cases:
 
     '
   expected:
-    aql: "FOR a IN @@collection\n  FILTER (a.name == \"Alice\")\n  FOR b IN @@collection2\n    FILTER (b.name == \"Bob\")\n    UPSERT {_from: a._id, _to: b._id}\n    INSERT {_from: a._id, _to: b._id, since: 2020}\n    UPDATE {}\n    IN @@edgeCollection\n"
+    aql: "FOR a IN @@collection\n  FILTER (a.name == \"Alice\")\n  FOR b IN @@collection2\n    FILTER (b.name == \"Bob\")\n    UPSERT {_from: a._id, _to: b._id, since: 2020}\n    INSERT {_from: a._id, _to: b._id, since: 2020}\n    UPDATE {}\n    IN @@edgeCollection\n"
     bind_vars:
       "@edgeCollection": follows
       "@collection": persons

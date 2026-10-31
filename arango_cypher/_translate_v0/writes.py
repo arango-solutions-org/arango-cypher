@@ -22,6 +22,13 @@ from .label_tests import labels_field as entity_labels_field
 from .literals import _aql_string_literal
 from .merge_bindings import endpoint_action_lines, merge_path_line, refuse_stale_endpoint_return
 from .merge_docs import MapAction, insert_document, update_clause, upsert_options
+from .merge_patterns import (
+    MergeEdge,
+    MergeEndpoint,
+    pattern_merge_lines,
+    refuse_unbound_endpoints,
+    unbound_endpoints,
+)
 from .naming import _aql_collection_ref, _pick_bind_key, _pick_fresh_var, _strip_label_backticks
 from .property_writes import PropertyOp, PropertyWrites, StoredWrite, keep_fields_for
 from .scopes import outer_bound_names
@@ -1705,7 +1712,19 @@ def _translate_merge_relationship(
     resolver: MappingResolver,
     bind_vars: dict[str, Any],
 ) -> AqlQuery:
-    """Translate ``MERGE (a)-[:REL {props}]->(b)`` into AQL UPSERT on an edge collection."""
+    """Translate ``MERGE (a)-[:REL {props}]->(b)`` into AQL UPSERT on an edge collection.
+
+    With an endpoint no earlier clause binds, the whole pattern is merged
+    instead (:mod:`merge_patterns`), or refused where that is not covered.
+    """
+    unbound = unbound_endpoints(merge_ctx, outer_bound_names(merge_ctx))
+    refuse_unbound_endpoints(
+        merge_ctx,
+        unbound,
+        first_clause=not spq.oC_ReadingClause()
+        and isinstance(spq.parentCtx, CypherParser.OC_SingleQueryContext),
+        hops=len(chains),
+    )
     if len(chains) != 1:
         return _translate_merge_multi_hop(
             spq,
@@ -1767,9 +1786,29 @@ def _translate_merge_relationship(
         search_fields.append(f"{type_field}: @{rtv_key}")
         insert_fields.append(f"{type_field}: @{rtv_key}")
 
-    rel_props = _compile_create_rel_props(rel_pat, bind_vars)
-    for k, v in rel_props:
+    # The pattern's properties are part of what the MERGE matches, not only
+    # of what it creates: (a)-[:T {name: 'r2'}]->(b) does not match an r1 edge.
+    for k, v in _compile_create_rel_props(rel_pat, bind_vars):
+        search_fields.append(f"{k}: {v}")
         insert_fields.append(f"{k}: {v}")
+
+    if unbound:
+        return _translate_pattern_merge(
+            spq,
+            merge_ctx=merge_ctx,
+            nodes=(node, target_node),
+            edge=MergeEdge(
+                var=detail.oC_Variable().getText().strip()
+                if detail.oC_Variable() is not None
+                else "_mergeRel",
+                coll_key=edge_coll_key,
+                direction=direction,
+                search_fields=search_fields[2:],
+                insert_fields=insert_fields[2:],
+            ),
+            resolver=resolver,
+            bind_vars=bind_vars,
+        )
 
     endpoint_actions: dict[tuple[str, bool], list[str]] = {}
     on_create_fields, on_match_fields = _extract_merge_actions(
@@ -1814,6 +1853,42 @@ def _translate_merge_relationship(
             bind_vars=bind_vars,
         )
 
+    return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
+
+
+def _translate_pattern_merge(
+    spq: CypherParser.OC_SinglePartQueryContext,
+    *,
+    merge_ctx: CypherParser.OC_MergeContext,
+    nodes: tuple[CypherParser.OC_NodePatternContext, CypherParser.OC_NodePatternContext],
+    edge: MergeEdge,
+    resolver: MappingResolver,
+    bind_vars: dict[str, Any],
+) -> AqlQuery:
+    """``MERGE (a:A)-[r:R]->(b:B)`` as the first clause: merge the whole pattern (:mod:`merge_patterns`)."""
+    endpoints: list[MergeEndpoint] = []
+    for node, default in zip(nodes, ("_mergeStart", "_mergeEnd"), strict=True):
+        name = node.oC_Variable().getText().strip() if node.oC_Variable() is not None else default
+        if endpoints and name == endpoints[0].var:
+            # A self-loop: ``(a:A)-[:R]->(a)``; the second mention adds nothing.
+            if node.oC_NodeLabels() is not None or node.oC_Properties() is not None:
+                raise CoreError(
+                    f"MERGE cannot add labels or properties to {name!r} on its second mention in the pattern",
+                    code="UNSUPPORTED",
+                )
+            endpoints.append(endpoints[0])
+            continue
+        _, coll_key, _, search_doc, insert_doc, _ = _build_merge_node_docs(
+            node, merge_ctx, resolver=resolver, bind_vars=bind_vars
+        )
+        endpoints.append(
+            MergeEndpoint(var=name, coll_key=coll_key, search_doc=search_doc, insert_doc=insert_doc)
+        )
+    ret = spq.oC_Return()
+    lines = pattern_merge_lines(endpoints[0], endpoints[1], edge, final=ret is None)
+    if ret is not None:
+        lines.extend(merge_path_line(merge_ctx, [endpoints[0].var, endpoints[1].var], [edge.var]))
+        _compile_return_for_create(ret.oC_ProjectionBody(), lines=lines, bind_vars=bind_vars)
     return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
 
 
@@ -1904,6 +1979,7 @@ def _translate_merge_multi_hop(
             search_fields.append(f"{type_field}: @{rtv_key}")
             insert_fields.append(f"{type_field}: @{rtv_key}")
         for k, v in _compile_create_rel_props(rel_pat, bind_vars):
+            search_fields.append(f"{k}: {v}")
             insert_fields.append(f"{k}: {v}")
 
         lines.append("UPSERT {" + ", ".join(search_fields) + "}")

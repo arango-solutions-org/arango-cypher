@@ -229,3 +229,52 @@ def test_merge_binds_a_named_path(db: Any) -> None:
     )
     assert rows == [{"l": 1, "names": ["a", "b"]}]
     assert db.collection("follows").count() == 1
+
+
+def test_a_relationship_merge_with_other_properties_creates_a_new_relationship(db: Any) -> None:
+    """The pattern's properties are matched: {w: 6} does not match the w: 5 edge."""
+    query = (
+        "MATCH (a:User {name: 'a'}), (b:User {name: 'b'}) MERGE (a)-[r:FOLLOWS {w: 6}]->(b) RETURN r.w AS w"
+    )
+    assert _run(db, query) == [{"w": 6}]
+    assert sorted(e["w"] for e in db.collection("follows").all()) == [5, 6]
+    _run(db, query)  # now it matches
+    assert db.collection("follows").count() == 2
+
+
+def _names(db: Any, collection: str) -> list[str]:
+    return sorted(d["name"] for d in db.collection(collection).all())
+
+
+def test_a_pattern_merge_with_unbound_endpoints_creates_then_matches_the_whole_pattern(db: Any) -> None:
+    query = (
+        "MERGE (a:User {name: 'x'})-[r:FOLLOWS {w: 1}]->(b:User {name: 'y'}) RETURN a.name AS a, b.name AS b"
+    )
+    assert _run(db, query) == [{"a": "x", "b": "y"}]
+    assert _names(db, "users") == ["a", "b", "x", "y"]
+    edge = next(e for e in db.collection("follows").all() if e.get("w") == 1)
+    assert (edge["_from"], edge["_to"]) == (
+        next(db.collection("users").find({"name": "x"}))["_id"],
+        next(db.collection("users").find({"name": "y"}))["_id"],
+    )
+    assert _run(db, query) == [{"a": "x", "b": "y"}]  # matched: nothing new
+    assert db.collection("users").count() == 4 and db.collection("follows").count() == 2
+
+
+def test_a_pattern_merge_creates_every_node_when_only_the_relationship_is_missing(db: Any) -> None:
+    """openCypher: users 'a' and 'b' exist, but no a-[:FOLLOWS {w: 9}]->b, so all of it is created."""
+    _run(db, "MERGE (a:User {name: 'a'})-[:FOLLOWS {w: 9}]->(b:User {name: 'b'})")
+    assert _names(db, "users") == ["a", "a", "b", "b"]
+    assert db.collection("follows").count() == 2
+
+
+def test_a_pattern_merge_writes_lpg_endpoints_in_one_insert(db: Any) -> None:
+    rows = _run(
+        db, "MERGE (a:User {name: 'p'})<-[r:FOLLOWS]-(b:User {name: 'q'}) RETURN type(r) AS t", mapping="lpg"
+    )
+    assert rows == [{"t": "FOLLOWS"}]
+    new = {d["name"]: d for d in db.collection("vertices").all() if d["name"] in ("p", "q")}
+    assert new["p"]["type"] == new["q"]["type"] == "User"
+    (edge,) = list(db.collection("edges").all())
+    assert (edge["_from"], edge["_to"], edge["type"]) == (new["q"]["_id"], new["p"]["_id"], "FOLLOWS")
+

@@ -150,3 +150,50 @@ def test_a_return_of_an_endpoint_the_merge_set_is_refused() -> None:
 def test_endpoint_action_lines_needs_the_endpoint_collection() -> None:
     with pytest.raises(CoreError, match="not known here"):
         endpoint_action_lines({("b", True): ["x: 1"]}, {}, {}, final=True)
+
+
+def test_a_relationship_merge_matches_on_the_relationship_properties() -> None:
+    aql = _aql("MATCH (a:User), (b:User) MERGE (a)-[r:FOLLOWS {w: 6}]->(b) RETURN r")
+    assert "UPSERT {_from: a._id, _to: b._id, w: 6}" in aql
+
+
+# -- MERGE of a relationship whose endpoints nothing binds ---------------------
+
+
+def test_an_unbound_pattern_merge_reads_the_whole_pattern_then_inserts() -> None:
+    aql = _aql("MERGE (a:User {name: 'x'})-[r:FOLLOWS {w: 1}]->(b:User {name: 'y'}) RETURN r")
+    find = aql.index("LET _merge_found = FIRST(")
+    assert find < aql.index("INSERT _d IN @@collection") < aql.index("INSERT _d IN @@edgeCollection")
+    assert "MATCHES(_mr, {w: 1})" in aql
+    # Both users are one collection: one INSERT writes both (ERR 1579 otherwise).
+    assert aql.count("INSERT _d IN @@collection RETURN NEW") == 1
+    assert "LET a = _merge_found != null ? _merge_found.s : _merge_new0[0]" in aql
+    assert "LET r = _merge_found != null ? _merge_found.r : _merge_new_rel[0]" in aql
+
+
+def test_an_unbound_pattern_merge_without_return_ends_on_the_edge_insert() -> None:
+    aql = _aql("MERGE (:User {name: 'x'})<-[:FOLLOWS]-(:User {name: 'y'})")
+    last = aql.splitlines()[-1].strip()
+    assert last.startswith("FOR _d IN (_merge_found == null ? [{_from: _mergeEnd._id, _to: _mergeStart._id")
+    assert last.endswith("INSERT _d IN @@edgeCollection")
+
+
+def test_an_unbound_self_loop_merge_creates_one_node() -> None:
+    aql = _aql("MERGE p = (a:User {name: 'x'})-[:FOLLOWS]->(a) RETURN p")
+    assert "[{name: 'x'}]" in aql or "[{name: @" in aql
+    assert "LET p = {nodes: [a, a], edges: [_mergeRel]}" in aql
+
+
+@pytest.mark.parametrize(
+    ("cypher", "match"),
+    [
+        ("MATCH (a:User) MERGE (a)-[:FOLLOWS]->(b:User)", "only as the query's first clause"),
+        ("MERGE (a:User)-[:FOLLOWS]->(b:User)-[:FOLLOWS]->(c:User)", "multi-hop"),
+        ("MERGE (a:User)-[:FOLLOWS]->(b:User) ON CREATE SET a.x = 1", "ON CREATE / ON MATCH"),
+        ("MERGE (a:User)-[:FOLLOWS]->(a:User {name: 'z'})", "VariableAlreadyBound"),
+    ],
+)
+def test_unbound_endpoint_merges_it_does_not_cover_are_refused(cypher: str, match: str) -> None:
+    with pytest.raises(CoreError, match=match):
+        _aql(cypher)
+
