@@ -11,6 +11,7 @@ import pytest
 from arango_query_core import CoreError
 
 from arango_cypher import translate
+from arango_cypher._translate_v0.merge_bindings import endpoint_action_lines
 from arango_cypher._translate_v0.merge_docs import MapAction, insert_document, update_clause, upsert_options
 from arango_cypher._translate_v0.pipeline_deletes import needs_pipeline_delete
 from arango_cypher.parser import parse_cypher
@@ -91,3 +92,61 @@ def test_map_actions_apply_in_order() -> None:
     assert doc.startswith(
         'FIRST(LET _doc = MERGE(MERGE(KEEP(MERGE({_from: a}, {x: 1}), "_from"), m), {y: 2})'
     )
+
+
+# -- What a MERGE binds besides the entity it writes ---------------------------
+
+
+def test_merge_binds_a_named_path_to_the_node() -> None:
+    aql = _aql("MERGE p = (n:User {name: 'z'}) RETURN p")
+    assert "LET n = NEW\nLET p = {nodes: [n], edges: []}" in aql
+
+
+def test_merge_binds_a_named_path_to_one_hop_in_pattern_order() -> None:
+    aql = _aql("MATCH (a:User), (b:User) MERGE p = (a)<-[r:FOLLOWS]-(b) RETURN p")
+    assert "UPSERT {_from: b._id, _to: a._id}" in aql
+    assert "LET p = {nodes: [a, b], edges: [r]}" in aql
+
+
+@pytest.mark.parametrize(
+    "cypher",
+    [
+        "MERGE p = (a:User)-[:FOLLOWS]->(b:User)-[:FOLLOWS]->(c:User) RETURN p",
+        "MERGE p = (a:User {name: 'x'}) MERGE (b:User {name: 'y'}) RETURN p",
+    ],
+)
+def test_a_named_path_the_merge_would_not_bind_is_refused(cypher: str) -> None:
+    with pytest.raises(CoreError, match="named path"):
+        _aql(cypher)
+
+
+def test_on_create_set_on_an_endpoint_updates_it_after_the_upsert() -> None:
+    aql = _aql("MATCH (a:User), (b:User) MERGE (a)-[:FOLLOWS]->(b) ON CREATE SET b.created = 1")
+    lines = [line.strip() for line in aql.splitlines()]
+    upsert_end = lines.index("IN @@edgeCollection")
+    assert lines[upsert_end + 1] == "LET _merge_old = OLD"
+    # Nothing follows: the endpoint UPDATE ends the query.
+    assert lines[-1].startswith("FOR _w IN [{d: b, p: (_merge_old == null ? {created: 1} : null)}]")
+    assert lines[-1].endswith("UPDATE _w.d WITH _w.p IN @@collection2")  # b's binding
+
+
+def test_endpoint_sets_before_a_return_are_a_subquery() -> None:
+    aql = _aql(
+        "MATCH (a:User), (b:User) MERGE (a)-[r:FOLLOWS]->(b) ON MATCH SET a.seen = 1, b.seen = 2 "
+        "RETURN count(r) AS c"
+    )
+    # a and b are both users: one UPDATE writes both (a second would be ERR 1579).
+    assert aql.count("UPDATE _w.d") == 1
+    assert (
+        "LET _endpoint_sets0 = (FOR _w IN [{d: a, p: (_merge_old != null ? {seen: 1} : null)}, {d: b," in aql
+    )
+
+
+def test_a_return_of_an_endpoint_the_merge_set_is_refused() -> None:
+    with pytest.raises(CoreError, match="without the SET"):
+        _aql("MATCH (a:User), (b:User) MERGE (a)-[:FOLLOWS]->(b) ON CREATE SET b.created = 1 RETURN b")
+
+
+def test_endpoint_action_lines_needs_the_endpoint_collection() -> None:
+    with pytest.raises(CoreError, match="not known here"):
+        endpoint_action_lines({("b", True): ["x: 1"]}, {}, {}, final=True)

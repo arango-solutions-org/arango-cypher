@@ -20,6 +20,7 @@ from .columns import written_column
 from .label_tests import label_test, label_write, label_write_entries, shared_label_fields
 from .label_tests import labels_field as entity_labels_field
 from .literals import _aql_string_literal
+from .merge_bindings import endpoint_action_lines, merge_path_line, refuse_stale_endpoint_return
 from .merge_docs import MapAction, insert_document, update_clause, upsert_options
 from .naming import _aql_collection_ref, _pick_bind_key, _pick_fresh_var, _strip_label_backticks
 from .property_writes import PropertyOp, PropertyWrites, StoredWrite, keep_fields_for
@@ -1482,6 +1483,7 @@ def _translate_merge_query(
     if ret is not None:
         ret_var = var
         lines.append(f"LET {ret_var} = NEW")
+        lines.extend(merge_path_line(merge_ctx, [ret_var], []))
         _compile_return_for_create(
             ret.oC_ProjectionBody(),
             lines=lines,
@@ -1496,13 +1498,18 @@ def _refuse_untranslated_merge_parts(
 ) -> None:
     """Refuse what the UPSERT translation would drop instead of compiling.
 
-    A path variable on the MERGE pattern (``MERGE p = (a {num: 1})``) was
-    never bound. A CREATE beside the MERGE (which the AQL also left out) is
-    refused by the router (:func:`write_guards.refuse_dropped_writes`) before this runs.
+    A path variable is bound for a single MERGE of a node or of one hop
+    (:func:`merge_bindings.merge_path_line`); on several MERGEs or a longer pattern it would
+    not be, and is refused. A CREATE beside the MERGE (which the AQL also left
+    out) is refused by the router (:func:`write_guards.refuse_dropped_writes`)
+    before this runs.
     """
     del spq  # the clauses beside the MERGE are the router's to check
     for merge in merge_clauses:
-        if merge.oC_PatternPart().oC_Variable() is not None:
+        chains = merge.oC_PatternPart().oC_AnonymousPatternPart().oC_PatternElement().oC_PatternElementChain()
+        if merge.oC_PatternPart().oC_Variable() is not None and (
+            len(merge_clauses) > 1 or len(chains or []) > 1
+        ):
             raise CoreError(
                 f"MERGE of a named path ({merge.oC_PatternPart().oC_Variable().getText()} = …) is not supported",
                 code="UNSUPPORTED",
@@ -1557,6 +1564,7 @@ def _extract_merge_actions(
     trailing_sets: list[CypherParser.OC_SetContext] | None = None,
     *,
     map_actions: bool = False,
+    endpoint_actions: dict[tuple[str, bool], list[str]] | None = None,
 ) -> tuple[list[str], list[str]]:
     """Extract ON CREATE SET / ON MATCH SET fields from a MERGE clause.
 
@@ -1631,6 +1639,20 @@ def _extract_merge_actions(
                 raise CoreError(
                     f"MERGE ... SET refers to undefined variable {prop_target!r}", code="UNSUPPORTED"
                 )
+            if (
+                prop_target is not None
+                and endpoint_actions is not None
+                and writable is not None
+                and prop_target not in writable
+                and prop_target in outer_bound_names(merge_ctx)
+                and len(si.oC_PropertyExpression().oC_PropertyLookup() or []) == 1
+            ):
+                # A property of a bound endpoint (``ON CREATE SET b.created``):
+                # written to that node after the UPSERT (merge_bindings).
+                key = si.oC_PropertyExpression().oC_PropertyLookup()[0].oC_PropertyKeyName().getText().strip()
+                value = _compile_expression(si.oC_Expression(), bind_vars)
+                endpoint_actions.setdefault((prop_target, is_on_create), []).append(f"{key}: {value}")
+                continue
             if prop_target is not None and writable is not None and prop_target not in writable:
                 # The action's value goes into the UPSERT's own document: a
                 # property of another variable was written onto the merged
@@ -1749,7 +1771,10 @@ def _translate_merge_relationship(
     for k, v in rel_props:
         insert_fields.append(f"{k}: {v}")
 
-    on_create_fields, on_match_fields = _extract_merge_actions(merge_ctx, bind_vars, map_actions=True)
+    endpoint_actions: dict[tuple[str, bool], list[str]] = {}
+    on_create_fields, on_match_fields = _extract_merge_actions(
+        merge_ctx, bind_vars, map_actions=True, endpoint_actions=endpoint_actions
+    )
 
     search_doc = "{" + ", ".join(search_fields) + "}"
     # What a whole-map ``SET r = …`` keeps: the edge's endpoints and type.
@@ -1763,15 +1788,26 @@ def _translate_merge_relationship(
     lines.append(f"INSERT {insert_doc}")
     lines.append(update_clause(on_match_fields, keep))
     lines.append(f"IN {edge_coll_ref}{upsert_options(on_match_fields)}")
+    if endpoint_actions:
+        lines.extend(
+            endpoint_action_lines(
+                endpoint_actions,
+                _infer_var_collections_from_pipeline(lines),
+                bind_vars,
+                final=spq.oC_Return() is None,
+            )
+        )
 
     ret = spq.oC_Return()
     if ret is not None:
+        refuse_stale_endpoint_return(ret, endpoint_actions)
         rel_var_name = ""
         if detail.oC_Variable() is not None:
             rel_var_name = detail.oC_Variable().getText().strip()
         if not rel_var_name:
             rel_var_name = "r"
         lines.append(f"LET {rel_var_name} = NEW")
+        lines.extend(merge_path_line(merge_ctx, [start_var, end_var], [rel_var_name]))
         _compile_return_for_create(
             ret.oC_ProjectionBody(),
             lines=lines,

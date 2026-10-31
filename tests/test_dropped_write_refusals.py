@@ -3,7 +3,8 @@
 The single-part router hands a query part to one translator by the kind of
 write it sees, and each compiles only its own clauses. A CREATE beside a
 MERGE, or a SET/DELETE beside a FOREACH, used to vanish from the AQL without
-an error (silent data loss); MERGE of a named path never bound the path.
+an error (silent data loss); MERGE of a named path never bound the path (it is
+bound now for a single MERGE of a node or one hop, tests/test_write_sequencing.py).
 """
 
 from __future__ import annotations
@@ -38,10 +39,11 @@ def _aql(cypher: str) -> str:
         ("MERGE (n:User {id: 1}) SET n.x = n.x + 1", "reading the merged node"),
         ("MERGE (n:User {id: 1}) SET n += {x: 1}", "property of the merged node"),
         ("MERGE (n:User {id: 1}) SET n:Doc", "property of the merged node"),
-        ("MERGE p = (a:User {num: 1}) RETURN p", "named path"),
+        ("MERGE p = (a:User {num: 1}) MERGE (b:User {num: 2}) RETURN p", "named path"),
+        ("MERGE p = (a:User)-[:FOLLOWS]->(b:User)-[:FOLLOWS]->(c:User) RETURN p", "named path"),
         # An ON CREATE / ON MATCH item on another variable was written onto
-        # the merged node or relationship (TCK Merge6 [1], Merge7 [1]).
-        ("MATCH (a:User), (b:User) MERGE (a)-[:FOLLOWS]->(b) ON CREATE SET b.created = 1", "does not write"),
+        # the merged node or relationship. On a relationship MERGE's bound
+        # endpoint it is now written to that node (TCK Merge6 [1], Merge7 [1]).
         ("MATCH (a:User) MERGE (n:User {id: 1}) ON MATCH SET a.x = 1", "does not write"),
         # FOREACH parts its compiler leaves out.
         (

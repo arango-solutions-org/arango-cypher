@@ -188,3 +188,44 @@ def test_on_create_set_a_map_on_a_new_relationship(db: Any) -> None:
     assert list(db.aql.execute("FOR e IN follows FILTER e._from == 'users/b' RETURN HAS(e, 'gone')")) == [
         False
     ]
+
+
+def test_on_create_and_on_match_set_on_a_merge_endpoint(db: Any) -> None:
+    """ON CREATE / ON MATCH SET of an endpoint writes that node, per what the MERGE did."""
+    query = (
+        "MATCH (a:User {name: 'b'}), (b:User {name: 'a'}) MERGE (a)-[:FOLLOWS]->(b) "
+        "ON CREATE SET b.created = 1 ON MATCH SET b.matched = 1, a.matched = 2"
+    )
+    assert _run(db, query) == []
+    assert _doc(db, "users", "a") == {"name": "a", "x": 1, "y": 2, "created": 1}
+    assert _doc(db, "users", "b") == {"name": "b", "x": 1}
+    _run(db, query)
+    assert _doc(db, "users", "a") == {"name": "a", "x": 1, "y": 2, "created": 1, "matched": 1}
+    assert _doc(db, "users", "b") == {"name": "b", "x": 1, "matched": 2}
+    assert db.collection("follows").count() == 2
+
+
+def test_endpoint_sets_in_one_lpg_collection_are_one_write(db: Any) -> None:
+    """Both endpoints live in ``vertices``: one UPDATE writes both (a second would be ERR 1579)."""
+    db.collection("vertices").insert({"_key": "w", "type": "User", "name": "w"})
+    rows = _run(
+        db,
+        "MATCH (a:User {name: 'a'}), (b:User {name: 'w'}) MERGE (a)-[r:FOLLOWS]->(b) "
+        "ON CREATE SET a.out = 1, b.in = 1 RETURN count(r) AS c",
+        mapping="lpg",
+    )
+    assert rows == [1]  # a single count is returned bare by the write RETURN
+    assert _doc(db, "vertices", "v")["out"] == 1
+    assert _doc(db, "vertices", "w")["in"] == 1
+
+
+def test_merge_binds_a_named_path(db: Any) -> None:
+    rows = _run(db, "MERGE p = (n:User {name: 'z'}) RETURN length(p) AS l, [m IN nodes(p) | m.name] AS names")
+    assert rows == [{"l": 0, "names": ["z"]}]
+    rows = _run(
+        db,
+        "MATCH (a:User {name: 'a'}), (b:User {name: 'b'}) MERGE p = (a)-[:FOLLOWS]->(b) "
+        "RETURN length(p) AS l, [n IN nodes(p) | n.name] AS names",
+    )
+    assert rows == [{"l": 1, "names": ["a", "b"]}]
+    assert db.collection("follows").count() == 1

@@ -826,10 +826,23 @@ property and whole-document forms); `DELETE` / `DETACH DELETE`; `REMOVE`
 stores several per node; an unlabeled node MERGEs within the one collection
 unlabeled nodes live in; a RETURN after MERGE may aggregate, sort and page.
 MERGE refuses to rebind a variable bound before it, a null property value, an
-action on an undefined variable, and a whole-map `SET r = …`/`+= …` action,
-which it used to drop; it also refuses a MERGE of a named path, which never
-bound the path, and an ON CREATE / ON MATCH item on a variable the MERGE does
-not write, which was written onto the merged node or relationship instead. A
+action on an undefined variable, and a whole-map `SET n = …`/`+= …` action on
+a merged node, which it used to drop. On a single-hop relationship MERGE a
+whole-map action applies in order with the property actions (`ON CREATE SET
+r = a` copies node a's properties, `ON MATCH SET r += {w: null}` merges a map;
+the UPDATE becomes a REPLACE of `OLD`, and `_from`/`_to`/the type field
+survive a `=`; `merge_docs.py`); a property set to the literal `null` is left
+out of the INSERT and removed on match (`keepNull: false`). A named path
+(`MERGE p = (a {num: 1})`, `MERGE p = (a)-[r:T]->(b)`) is bound to the merged
+node, or to the endpoints and relationship in pattern order, for a single
+MERGE of a node or one hop; beside another MERGE or over a longer pattern it
+is refused. An ON CREATE / ON MATCH item on a bound endpoint of a
+relationship MERGE (`ON CREATE SET b.created = 1`) writes that node after the
+UPSERT, when the UPSERT's `OLD` says it created (or matched) the
+relationship: one UPDATE per endpoint collection (two variables in LPG's one
+`vertices` collection share it), and a RETURN of that endpoint, which would
+show it without the SET, is refused (`merge_bindings.py`). An item on a
+variable the MERGE neither writes nor binds as an endpoint stays refused. A
 `SET n.p = v` after a node MERGE joins both the INSERT and the UPDATE
 document, after the ON CREATE / ON MATCH items; any other SET after a MERGE
 is refused); `FOREACH` (with `SET`, and — newly — `CREATE` / `DELETE`); and `WITH … SET`/`DELETE`/`REMOVE` on MATCH-bound document variables
@@ -878,6 +891,14 @@ NEW`). After such a write the query may filter, project, aggregate and
 refused (`UNSUPPORTED`): AQL cannot read a collection after writing it in the
 same query (ERR 1579), nor write one twice (`pipeline_writes.py`). `CREATE`
 and `MERGE` before a WITH in a query with MATCH stay refused.
+
+A `DELETE` after a WITH of an expression rather than a MATCH-bound variable
+(`WITH collect(n) AS ns DETACH DELETE ns[$i]`, `WITH {k: n} AS m DELETE m.k`;
+TCK Delete5) reads first: the pipeline compiles into a list of rows carrying
+the values to delete, the null ones are dropped and a non-entity fails the
+query, and each collection is then written by one REMOVE (edges, the edges
+touching deleted nodes under DETACH, then nodes); a RETURN reads the
+materialised rows (`pipeline_deletes.py`).
 
 A CREATE may stand before a WITH (`MATCH … CREATE … WITH … UNWIND … MATCH …
 CREATE`, LDBC INS1/4/6/7), with only CREATE as the updating clause. The query
