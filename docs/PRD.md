@@ -668,7 +668,12 @@ self-loop once, in every pattern position, and an undirected pattern with both
 ends anonymous (`MATCH ()--()`, an edge-collection scan) yields each edge once
 per orientation and a self-loop once. An undirected hop between two *different*
 variables still yields a self-loop twice (an ANY traversal visits it in both
-directions), where Cypher matches it once (TCK Match3 [11]/[15]/[16]): known gap.
+directions), where Cypher matches it once (TCK Match3 [11]/[15]/[16],
+CountingSubgraphMatches1 [10]/[11]). This is a **known, accepted divergence**:
+matching a self-loop once would mean replacing every undirected traversal by
+an edge scan or a union of an OUTBOUND and an INBOUND traversal, which costs
+the traversal's performance on every undirected pattern (LDBC) to fix a
+pattern that only differs on self-loops.
 `CALL { … }` subqueries (`arango_cypher/_translate_v0/subqueries.py`): for
 each incoming row the body runs once, and the row continues once per row it
 returns, with its columns added; a row whose body returns nothing is dropped.
