@@ -5753,6 +5753,20 @@ def _compile_subquery_body(
         )
 
     start_var, start_labels = _extract_node_var_and_labels(start_node, default_var="_sq_start")
+    if len(chains) > 1 and not has_with and len(parts) == 1:
+        # A multi-hop pattern: the bound-variable MATCH compiler, with the
+        # names the query binds before the subquery as its bound variables.
+        outer = outer_bound_names(sq_ctx)
+        sub_lines: list[str] = []
+        _compile_match_from_bound(
+            match_ctx,
+            resolver=resolver,
+            bind_vars=bind_vars,
+            forbidden_vars=set(outer),
+            var_env={name: name for name in outer},
+            lines=sub_lines,
+        )
+        return " ".join(ln.strip() for ln in sub_lines) + " RETURN 1"
     if len(chains) > 1:
         # Only one hop is compiled; dropping the others would test a weaker
         # pattern than the query's.

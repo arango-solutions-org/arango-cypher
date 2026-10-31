@@ -42,9 +42,19 @@ def test_fresh_single_node_scans_and_outer_one_is_probed():
     assert "FOR _sq_probe_n IN [n]" in probe
 
 
-def test_multi_hop_subquery_fails_closed():
+def test_multi_hop_subquery_tests_every_hop():
+    """Both hops are traversed, from the outer ``n``, edges kept distinct."""
+    aql = _aql("MATCH (n) WHERE exists { MATCH (l)<-[:FOLLOWS]-(n)-[:FOLLOWS]->(m) RETURN true } RETURN n")
+    assert aql.count(" IN 1..1 ") == 2
+    assert "._id != " in aql
+
+
+def test_multi_hop_subquery_with_aggregation_fails_closed():
     with pytest.raises(CoreError):
-        _aql("MATCH (n) WHERE exists { MATCH (l)<-[:FOLLOWS]-(n)-[:FOLLOWS]->(m) RETURN true } RETURN n")
+        _aql(
+            "MATCH (n) WHERE exists { MATCH (l)<-[:FOLLOWS]-(n)-[:FOLLOWS]->(m) WITH count(*) AS c RETURN c } "
+            "RETURN n"
+        )
 
 
 def test_outer_bound_names_excludes_the_subquery_itself():

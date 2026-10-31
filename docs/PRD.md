@@ -803,7 +803,25 @@ contributes its vertices and edges in pattern order; and in an `OPTIONAL MATCH`
 or a `MATCH` after a `WITH` (`OPTIONAL MATCH p = (a)-[:X]->(b)`, null when
 nothing matches), in the order the pattern is written even when it is compiled
 from its bound end. There a named variable-length relationship is its list of
-edges too.
+edges too, and so it is in a first MATCH: a variable-length relationship the
+query reads (`[r:T*1..2]`, and `[r*1..1]`, which is variable-length syntax)
+gets the traversal's path (`LET r = path.edges`), a named path splices each
+variable-length hop's vertices and edges, and the properties of a
+variable-length relationship hold for every edge, not only the last.
+Relationship uniqueness across a pattern's traversals covers merged hops and
+variable-length edge lists. An empty interval (`*2..1`, `*..0`) matches
+nothing. `MATCH … UNWIND … RETURN` runs the UNWIND before the projection's
+`COLLECT`/`SORT`, and an UNWIND variable is in scope for `RETURN *`. A query
+whose only MATCHes are `OPTIONAL` projects its RETURN over one row of null
+variables when nothing matches (`n.missing IS NULL` is true).
+
+`x[i]` is Cypher's: unless the query shows a list read with an integer or a
+map read with a string, the subscript checks the run-time types and fails
+with the Cypher TypeError (`InvalidArgumentType`,
+`MapElementAccessByNonString`) where AQL returns null (`subscripts.py`); a
+subscript or slice binds tighter than `IN` (`3 IN list[0]`), which the
+openCypher 9 grammar chains the other way (`reassociate.py`). Positional
+parameters (`$0`, `$1`) are AQL's `@0`, `@1`.
 
 An aggregate may be nested in a projection expression (`head(collect(x))`,
 `100 * count(*) + count(x)`, `list + collect(x)`, `[y IN collect(x) | …]`):
@@ -963,8 +981,9 @@ An `EXISTS { … }` pattern correlates with a node only when the query binds
 that name before the subquery (`scopes.py`); otherwise the name is the
 subquery's own variable (a traversal target, or a scan of the unlabeled-node
 collection for a single node), and a named relationship is the subquery's
-edge variable. A multi-hop pattern inside `EXISTS { }` fails closed rather
-than being shortened to its first hop.
+edge variable. A multi-hop pattern inside `EXISTS { }` compiles as a MATCH
+over the outer query's bound variables, every hop tested; with a `WITH`
+aggregation it fails closed rather than being shortened to its first hop.
 
 **Multi-label nodes in a type-discriminated collection.** A `LABEL` entity
 mapping may name a `labelsField` (`"labels"`) besides its `typeField`: a node
