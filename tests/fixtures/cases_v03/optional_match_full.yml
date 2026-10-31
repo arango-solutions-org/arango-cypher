@@ -52,15 +52,16 @@
 # Leading OPTIONAL MATCH (no mandatory MATCH)
 ##############################################################################
 - id: optional_leading_single
-  description: "Leading OPTIONAL MATCH (becomes the mandatory match with null-wrap)"
+  description: "Leading OPTIONAL MATCH: one row of null variables when nothing matches, then the RETURN"
   cypher: >
     OPTIONAL MATCH (u:User {name: "Nobody"})
     RETURN u.name
   mapping_fixture: pg
   expect_aql_contains:
-    - "LET _rows"
-    - "LENGTH(_rows)"
-    - "RETURN"
+    - "LET _opt_rows"
+    - "LENGTH(_opt_rows) > 0 ? _opt_rows : [{}]"
+    - "LET u = _opt_row.u"
+    - "RETURN u.name"
 
 ##############################################################################
 # OPTIONAL MATCH with WHERE clause

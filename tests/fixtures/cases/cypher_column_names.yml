@@ -47,11 +47,11 @@ cases:
   extensions_enabled: false
   cypher: "OPTIONAL MATCH (n:User) RETURN n.name, n.age"
   expected:
-    aql: "LET _rows = (\nFOR n IN @@collection\n  FILTER n[@typeField] == @typeValue\n  RETURN {\"n.name\": n.name, \"n.age\": n.age}\n  )\n  FOR _r IN (LENGTH(_rows) > 0 ? _rows : [{\"n.name\": null, \"n.age\": null}])\n    RETURN _r"
+    aql: "LET _opt_rows = (\nFOR n IN @@tailCollection\n  FILTER n[@tailTypeField] == @tailTypeValue\n  RETURN {n: n}\n  )\n  FOR _opt_row IN (LENGTH(_opt_rows) > 0 ? _opt_rows : [{}])\n    LET n = _opt_row.n\n    RETURN {\"n.name\": n.name, \"n.age\": n.age}"
     bind_vars:
-      "@collection": "vertices"
-      "typeField": "type"
-      "typeValue": "User"
+      "@tailCollection": "vertices"
+      "tailTypeField": "type"
+      "tailTypeValue": "User"
 - id: C1306
   name: "Column names: one unaliased column stays bare"
   mapping_fixture: lpg

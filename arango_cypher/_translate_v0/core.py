@@ -468,6 +468,31 @@ def _translate_single_query(
             bind_vars=bind_vars,
         )
 
+    if not mandatory_matches and not pre_unwinds and not in_query_calls and spq.oC_Return() is not None:
+        # Only OPTIONAL MATCHes: with no match there is one row whose
+        # variables are null, and the RETURN projects *that* row
+        # (``n.missing IS NULL`` is true, ``count(n)`` is 0) — not a row of
+        # nulls substituted for the projection's result.
+        opt_lines: list[str] = []
+        opt_env = _compile_optional_matches(
+            optional_matches,
+            resolver=resolver,
+            bind_vars=bind_vars,
+            forbidden_vars=set(),
+            bound_env={},
+            lines=opt_lines,
+        )
+        _active_user_vars.set([v for v in opt_env if not v.startswith("_")])
+        opt_forbidden = set(opt_env.values())
+        for uw in post_unwinds:
+            opt_env = _compile_pipeline_unwind(
+                uw, bind_vars=bind_vars, forbidden_vars=opt_forbidden, var_env=opt_env, lines=opt_lines
+            )
+        _append_return(
+            spq.oC_Return().oC_ProjectionBody(), lines=opt_lines, bind_vars=bind_vars, var_env=opt_env
+        )
+        return AqlQuery(text="\n".join(opt_lines), bind_vars=bind_vars)
+
     sole_optional = False
     if not mandatory_matches:
         mandatory_matches.append(optional_matches.pop(0))
@@ -935,6 +960,30 @@ def _is_prunable_condition(
     return True
 
 
+def edge_uniqueness_across(groups: list[list[str]], *, singles: list[str]) -> list[str]:
+    """Filters keeping each edge of a group (an edge, or ``...list`` entry) out
+    of every other group and out of the *singles* (single-edge groups)."""
+
+    def ids(entry: str) -> tuple[str, bool]:
+        return (f"{entry[3:]}[*]._id", True) if entry.startswith("...") else (f"{entry}._id", False)
+
+    out: list[str] = []
+    others: list[list[str]] = [*groups, *([s] for s in singles)]
+    for gi, group in enumerate(groups):
+        for other in others[gi + 1 :]:
+            for a in group:
+                for b in other:
+                    (ea, la), (eb, lb) = ids(a), ids(b)
+                    if la and lb:
+                        out.append(f"LENGTH(INTERSECTION({ea}, {eb})) == 0")
+                    elif la or lb:
+                        single, many = (eb, ea) if la else (ea, eb)
+                        out.append(f"{single} NOT IN {many}")
+                    else:
+                        out.append(f"{ea} != {eb}")
+    return out
+
+
 def _emit_relationship_uniqueness(
     named_rel_vars: list[str],
     lines: list[str],
@@ -1366,7 +1415,7 @@ def _translate_match_body(
         rel_list: str | None = None
         is_varlen = detail is not None and detail.oC_RangeLiteral() is not None
         rel_used = rel_named and is_referenced(rel_var, detail.oC_Variable())
-        if is_varlen and (rel_used or path_var_name is not None or r_prop_filters):
+        if is_varlen and (rel_used or path_var_name is not None or r_prop_filters or len(chains) > 1):
             # A variable-length relationship is the list of its edges: the
             # traversal's path supplies them, every one must match the
             # pattern's properties, and ``r`` names the list.
@@ -1480,7 +1529,11 @@ def _translate_match_body(
             groups.append([i])
 
     # --- Phase 3: emit AQL for each group ---
+    # Each group's edges as path entries (an edge, or ``...list``), for the
+    # cross-group uniqueness filters below.
+    group_edges: list[list[str]] = []
     for group in groups:
+        edges_before = len(path_edge_vars)
         if len(group) == 1:
             _emit_single_hop(
                 hops[group[0]],
@@ -1513,6 +1566,7 @@ def _translate_match_body(
             )
             last = hops[group[-1]]
             current_var = last.v_trav
+        group_edges.append(path_edge_vars[edges_before:])
 
     # Cypher's relationship-uniqueness rule states that no edge may bind
     # to two relationship slots in the same MATCH pattern, regardless of
@@ -1522,23 +1576,25 @@ def _translate_match_body(
     # already prevents repeated edges.
     if len(groups) > 1:
         cross_group_rels: list[str] = []
-        for _gi, group in enumerate(groups):
-            if len(group) != 1:
-                # Merged group: intermediate edges may not have a stable
-                # binding.  Skip cross-uniqueness emission for now; the
-                # last hop's edge is still bound but enforcing partial
-                # uniqueness would risk referencing absent LETs.
+        # Edges of merged groups and edge lists of variable-length hops: each
+        # traversal keeps its own edges distinct, so only pairs across groups
+        # need a filter (Match6 [11]).
+        grouped_edges: list[list[str]] = []
+        for gi, group in enumerate(groups):
+            if any(hops[i].r_style == "EMBEDDED" for i in group):
                 continue
-            h = hops[group[0]]
-            if h.r_style == "EMBEDDED":
-                continue
-            if h.rel_range != (1, 1):
-                # Variable-length traversals bind ``rel_var`` to only the
-                # final edge; a strict cross-pattern check would need a
-                # path-level NOT-IN comparison.  Skip for now.
-                continue
-            cross_group_rels.append(h.rel_var)
+            if len(group) == 1:
+                h = hops[group[0]]
+                if h.hop_path is None:
+                    if h.rel_range != (1, 1):
+                        # Only the final edge is bound: no complete check.
+                        continue
+                    cross_group_rels.append(h.rel_var)
+                    continue
+            grouped_edges.append(group_edges[gi])
         _emit_relationship_uniqueness(cross_group_rels, lines)
+        for filt in edge_uniqueness_across(grouped_edges, singles=cross_group_rels):
+            lines.append(f"    FILTER {filt}")
     else:
         # Single group: only named rels need cross-checks if any exist
         # (merged groups already enforce uniqueness internally).
@@ -6618,9 +6674,8 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
         txt = ctx.getText()
         if not txt.startswith("$"):
             raise CoreError("Invalid parameter syntax", code="UNSUPPORTED")
-        name = txt[1:]
-        if name.isdigit():
-            raise CoreError("Positional parameters not supported in v0", code="UNSUPPORTED")
+        # A positional parameter ($0, $1) is the AQL bind parameter of that
+        # name: AQL bind names may start with a digit.
         # Bind var value (if provided) is already in bind_vars; leave as-is.
         return _aql_bind_name(txt)
 

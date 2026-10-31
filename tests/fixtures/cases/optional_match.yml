@@ -8,9 +8,9 @@ cases:
 
     '
   expected:
-    aql: "LET _rows = (\nFOR n IN @@collection\n  FILTER (n.id == \"u1\")\n  RETURN n\n  )\n  FOR _r IN (LENGTH(_rows) > 0 ? _rows : [null])\n    RETURN _r"
+    aql: "LET _opt_rows = (\nFOR n IN @@tailCollection\n  FILTER (n.id == \"u1\")\n  RETURN {n: n}\n  )\n  FOR _opt_row IN (LENGTH(_opt_rows) > 0 ? _opt_rows : [{}])\n    LET n = _opt_row.n\n    RETURN n\n"
     bind_vars:
-      '@collection': users
+      "@tailCollection": users
 - id: C215
   name: Sole OPTIONAL MATCH node projected
   mapping_fixture: pg
@@ -19,9 +19,9 @@ cases:
 
     '
   expected:
-    aql: "LET _rows = (\nFOR n IN @@collection\n  RETURN {name: n.name}\n  )\n  FOR _r IN (LENGTH(_rows) > 0 ? _rows : [{name: null}])\n    RETURN _r"
+    aql: "LET _opt_rows = (\nFOR n IN @@tailCollection\n  RETURN {n: n}\n  )\n  FOR _opt_row IN (LENGTH(_opt_rows) > 0 ? _opt_rows : [{}])\n    LET n = _opt_row.n\n    RETURN {name: n.name}\n"
     bind_vars:
-      '@collection': users
+      "@tailCollection": users
 - id: C216
   name: Sole OPTIONAL MATCH relationship pattern projected
   mapping_fixture: pg
@@ -30,12 +30,11 @@ cases:
 
     '
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@uCollection\nLET _rows = (\nFOR u IN @@uCollection\n  FOR v, r IN 1..1 OUTBOUND u @@edgeCollection\n    FILTER IS_SAME_COLLECTION(@vCollection, v)\n    RETURN {from_name:\
-      \ u.name, to_name: v.name}\n    )\n    FOR _r IN (LENGTH(_rows) > 0 ? _rows : [{from_name: null, to_name: null}])\n      RETURN _r"
+    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@tailCollection\nLET _opt_rows = (\nFOR u IN @@tailCollection\n  FOR v, r IN 1..1 OUTBOUND u @@edgeCollection\n    FILTER IS_SAME_COLLECTION(@vCollection, v)\n    RETURN {u: u, v: v, r: r}\n    )\n    FOR _opt_row IN (LENGTH(_opt_rows) > 0 ? _opt_rows : [{}])\n      LET u = _opt_row.u\n      LET v = _opt_row.v\n      LET r = _opt_row.r\n      RETURN {from_name: u.name, to_name: v.name}\n"
     bind_vars:
-      '@uCollection': users
-      '@edgeCollection': follows
+      "@tailCollection": users
+      "@edgeCollection": follows
       vCollection: users
-      '@withCollection0': docs
-      '@withCollection1': persons
-      '@withCollection2': places
+      "@withCollection0": docs
+      "@withCollection1": persons
+      "@withCollection2": places
