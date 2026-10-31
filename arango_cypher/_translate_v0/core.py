@@ -14,7 +14,7 @@ from arango_query_core import (
 )
 
 from .._antlr.CypherParser import CypherParser
-from ..parser import parse_cypher
+from ..parser import deep_recursion, parse_cypher
 from . import temporal_strings
 from .aggregates import (
     aggregate_key,
@@ -98,7 +98,6 @@ from .naming import (
 from .pattern_reversal import from_bound_end
 from .percentiles import parse_percentile, percentile_value
 from .pipeline_writes import append_midquery_writes, refuse_after_write, split_writes
-from .reassociate import reassociate_in_subscripts
 from .scopes import is_referenced, outer_bound_names
 from .semantic_check import check_semantics
 from .shortest_path import (
@@ -161,9 +160,9 @@ from .three_valued import (
     _negate_mode,
     _negate_value,
     _test_truth,
-    _three_valued,
+    compile_in,
 )
-from .unwind import _translate_standalone_unwind
+from .unwind import _translate_standalone_unwind, unwind_source
 from .write_guards import refuse_dropped_writes
 from .writes import (
     _translate_create_query,
@@ -208,7 +207,7 @@ def translate_v0(
     sort_types_token = SORT_VALUE_TYPES.set({})
 
     try:
-        with temporal_strings.translation_scope(opts.temporal_strings):
+        with temporal_strings.translation_scope(opts.temporal_strings), deep_recursion():
             result = _translate_v0_inner(
                 cypher,
                 mapping=mapping,
@@ -255,9 +254,6 @@ def _translate_v0_inner(
     resolver = MappingResolver(mapping)
 
     pr = parse_cypher(cypher)
-    regrouped = reassociate_in_subscripts(pr.normalized, pr.tree)
-    if regrouped is not None:
-        pr = parse_cypher(regrouped)
     tree = pr.tree
     _reject_unsafe_escaped_names(tree)
     check_semantics(tree)
@@ -503,7 +499,7 @@ def _translate_single_query(
         unwind_lines: list[str] = []
         unwind_vars: list[str] = []
         for uw in post_unwinds:
-            expr = _compile_expression(uw.oC_Expression(), bind_vars)
+            expr = unwind_source(uw.oC_Expression(), _compile_expression(uw.oC_Expression(), bind_vars))
             var = uw.oC_Variable().getText().strip()
             unwind_lines.append(f"  FOR {var} IN {expr}")
             unwind_vars.append(var)
@@ -1732,7 +1728,7 @@ def _translate_computational_multi_part(
     forbidden: set[str] = set(outer_names) | set(var_env.values())
 
     def _emit_unwind(uw: CypherParser.OC_UnwindContext) -> None:
-        expr = _compile_expression(uw.oC_Expression(), bind_vars)
+        expr = unwind_source(uw.oC_Expression(), _compile_expression(uw.oC_Expression(), bind_vars))
         if var_env:
             expr = _rewrite_vars(expr, var_env)
         var = uw.oC_Variable().getText().strip()
@@ -1882,7 +1878,9 @@ def _compile_pipeline_unwind(
 
     Returns the variable environment extended with the unwound variable.
     """
-    expr = _compile_expression(unwind_ctx.oC_Expression(), bind_vars)
+    expr = unwind_source(
+        unwind_ctx.oC_Expression(), _compile_expression(unwind_ctx.oC_Expression(), bind_vars)
+    )
     if var_env:
         expr = _rewrite_vars(expr, var_env)
     cypher_var = unwind_ctx.oC_Variable().getText().strip()
@@ -2956,6 +2954,15 @@ def _compile_bound_part(
         # Inline properties on fresh scan node.
         for f in tail_props:
             lines.append(f"    FILTER {f}")
+    else:
+        # A bound start still has to carry the labels and properties this
+        # pattern gives it (``WITH a MATCH (a:X)-->(b)``): they filter.
+        if node.oC_NodeLabels() is not None:
+            pred = _compile_label_predicate(u_aql, node.oC_NodeLabels(), bind_vars)
+            if pred is not None:
+                lines.append(f"    FILTER {pred}")
+        for f in _compile_node_pattern_properties(node, var=u_aql, bind_vars=bind_vars, var_env=out_env):
+            lines.append(f"    FILTER {f}")
 
     node_segments: list[str] = [f"[{u_aql}]"]
     edge_segments: list[str] = []
@@ -3919,7 +3926,7 @@ def _apply_with_projection(
         env.update({cy: aql for cy, aql, _spec in compiled_collects if cy not in hidden})
         _append_post_aggregate_lets(lines, compiled_post, compiled_nonagg)
 
-        with_filter = _rewrite_vars(with_filter_raw, env) if with_filter_raw else None
+        with_filter = _rewrite_vars(with_filter_raw, {**grouped, **env}) if with_filter_raw else None
         if with_filter:
             lines.append(f"  FILTER {with_filter}")
         if order_ctx is not None:
@@ -3953,7 +3960,7 @@ def _apply_with_projection(
             lines.append(f"  LET {pk} = {pe}")
         _append_post_aggregate_lets(lines, compiled_post, compiled_nonagg)
 
-        with_filter = _rewrite_vars(with_filter_raw, env) if with_filter_raw else None
+        with_filter = _rewrite_vars(with_filter_raw, {**grouped, **env}) if with_filter_raw else None
         if with_filter:
             lines.append(f"  FILTER {with_filter}")
         if order_ctx is not None:
@@ -3980,7 +3987,7 @@ def _apply_with_projection(
             lines.extend(collect)
         else:
             lines.append(f"  COLLECT {collect_parts}")
-        with_filter = _rewrite_vars(with_filter_raw, env) if with_filter_raw else None
+        with_filter = _rewrite_vars(with_filter_raw, {**grouped, **env}) if with_filter_raw else None
         if with_filter:
             lines.append(f"  FILTER {with_filter}")
         lines.extend(restore_order)
@@ -3991,7 +3998,7 @@ def _apply_with_projection(
         for _, aql, expr in compiled_nonagg:
             if aql != expr:
                 lines.append(f"  LET {aql} = {expr}")
-        with_filter = _rewrite_vars(with_filter_raw, env) if with_filter_raw else None
+        with_filter = _rewrite_vars(with_filter_raw, {**grouped, **env}) if with_filter_raw else None
         if with_filter:
             lines.append(f"  FILTER {with_filter}")
 
@@ -4747,6 +4754,14 @@ def _parse_skip_limit(
         limit_value = _compile_expression(limit_expr_ctx, bind_vars)
 
     for clause, value in (("SKIP", skip_value), ("LIMIT", limit_value)):
+        if value is not None and re.search(r"\b(?:RAND|UUID|DATE_NOW)\(", value):
+            # AQL's LIMIT takes a value fixed when the query is planned, and
+            # a LET does not make one (ERR 1504).
+            raise CoreError(
+                f"{clause} with a value computed at run time ({value[:60]}) is not supported: "
+                "AQL needs a constant or a parameter",
+                code="UNSUPPORTED",
+            )
         # A parameter's value is known now: SKIP/LIMIT take a non-negative
         # integer (openCypher InvalidArgumentType / NegativeIntegerArgument).
         m = re.fullmatch(r"@(\w+)", value or "")
@@ -6086,7 +6101,8 @@ def _reduce_additive_terms(body_ctx: CypherParser.OC_ExpressionContext) -> Any |
     cmp = nots[0].oC_ComparisonExpression()
     if cmp.oC_PartialComparisonExpression():
         return None
-    return cmp.oC_AddOrSubtractExpression()
+    terms = cmp.oC_InExpression().oC_AddOrSubtractExpression()
+    return terms[0] if len(terms) == 1 else None
 
 
 def _compile_reduce(
@@ -6373,13 +6389,25 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
             return _negate_value(inner, two_valued=_is_two_valued(cmp_ctx))
         return inner
 
+    if isinstance(ctx, CypherParser.OC_InExpressionContext):
+        terms = ctx.oC_AddOrSubtractExpression()
+        if len(terms) == 1:
+            return _compile_expression(terms[0], bind_vars)
+        # ``a IN b IN c`` is ``(a IN b) IN c``; only the last test takes the
+        # predicate mode.
+        left = _compile_value(terms[0], bind_vars)
+        for i, term in enumerate(terms[1:]):
+            right = _compile_value(term, bind_vars)
+            left = compile_in(left, right, mode if i == len(terms) - 2 else None)
+        return left
+
     if isinstance(ctx, CypherParser.OC_ComparisonExpressionContext):
         partials = ctx.oC_PartialComparisonExpression()
         if not partials:
-            return _compile_expression(ctx.oC_AddOrSubtractExpression(), bind_vars)
+            return _compile_expression(ctx.oC_InExpression(), bind_vars)
         # A chained comparison ``a < b < c`` means ``a < b AND b < c``
         # (openCypher §Comparison): compile each adjacent pair and AND them.
-        operand_ctxs = [ctx.oC_AddOrSubtractExpression(), *(p.oC_AddOrSubtractExpression() for p in partials)]
+        operand_ctxs = [ctx.oC_InExpression(), *(p.oC_InExpression() for p in partials)]
         operands = [_compile_value(c, bind_vars) for c in operand_ctxs]
         types = [_string_kind(c) for c in operand_ctxs]
         conjuncts = []
@@ -6497,7 +6525,7 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
         string_ops = ctx.oC_StringOperatorExpression()
         if not (null_ops or list_ops or string_ops):
             return _compile_expression(ctx.oC_PropertyOrLabelsExpression(), bind_vars)
-        if mode is not None and list_ops and all(lop.IN() is None for lop in list_ops):
+        if mode is not None and list_ops:
             # A subscript or slice is a value, not a predicate: test it.
             return _test_truth(_compile_value(ctx, bind_vars), mode, two_valued=False)
         base = _compile_value(ctx.oC_PropertyOrLabelsExpression(), bind_vars)
@@ -6515,14 +6543,6 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
             if len(list_ops) != 1:
                 raise CoreError("Multiple list operators not supported in v0", code="UNSUPPORTED")
             lop = list_ops[0]
-            # "expr IN listExpr". Cypher's ``null IN list`` is null, AQL's
-            # ``null IN [null]`` is true; ``x IN null`` is null too, but AQL's
-            # false already fails a FILTER, so the "true" test guards x only.
-            if lop.IN() is not None:
-                right = _compile_value(lop.oC_PropertyOrLabelsExpression(), bind_vars)
-                holds, fails = f"{base} IN {right}", f"{base} NOT IN {right}"
-                in_operands = (base,) if mode == "true" else (base, right)
-                return _three_valued(holds, fails, in_operands, mode)
             # List subscript "expr[i]" and slice "expr[i..j]" / "[i..]" / "[..j]".
             # The grammar's list operator covers both; distinguish by the ".."
             # token in the operator's own text (it never includes the base).

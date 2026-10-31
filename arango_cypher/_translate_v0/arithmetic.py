@@ -131,7 +131,10 @@ def _static_type(ctx: Any) -> str | None:
     if isinstance(ctx, CypherParser.OC_ComparisonExpressionContext):
         if ctx.oC_PartialComparisonExpression():
             return BOOL
-        return _static_type(ctx.oC_AddOrSubtractExpression())
+        return _static_type(ctx.oC_InExpression())
+    if isinstance(ctx, CypherParser.OC_InExpressionContext):
+        terms = ctx.oC_AddOrSubtractExpression()
+        return _static_type(terms[0]) if len(terms) == 1 else BOOL
     if isinstance(ctx, CypherParser.OC_AddOrSubtractExpressionContext):
         terms = ctx.oC_MultiplyDivideModuloExpression()
         result = _static_type(terms[0])
@@ -160,8 +163,6 @@ def _static_type(ctx: Any) -> str | None:
             return BOOL
         list_ops = ctx.oC_ListOperatorExpression()
         if list_ops:
-            if any(op.IN() is not None for op in list_ops):
-                return BOOL
             # A slice of a list is a list; a subscript is an element.
             return LIST if ".." in list_ops[-1].getText() else None
         return _static_type(ctx.oC_PropertyOrLabelsExpression())
@@ -520,6 +521,8 @@ def is_arithmetic_transparent(ctx: Any) -> bool:
         return not ctx.NOT()
     if isinstance(ctx, CypherParser.OC_ComparisonExpressionContext):
         return not ctx.oC_PartialComparisonExpression()
+    if isinstance(ctx, CypherParser.OC_InExpressionContext):
+        return len(ctx.oC_AddOrSubtractExpression()) == 1
     if isinstance(ctx, CypherParser.OC_AddOrSubtractExpressionContext):
         terms = ctx.oC_MultiplyDivideModuloExpression()
         ops = [_interleaved_op(ctx, i) for i in range(1, len(terms))]

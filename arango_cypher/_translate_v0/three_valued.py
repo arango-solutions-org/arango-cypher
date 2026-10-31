@@ -160,6 +160,51 @@ def _three_valued(holds: str, fails: str, operands: Sequence[str], mode: str | N
     return "(" + " AND ".join([f"{op} != null" for op in nullable] + [body]) + ")"
 
 
+def compile_in(left: str, right: str, mode: str | None) -> str:
+    """Cypher's ``left IN right`` in *mode*.
+
+    It is null when the list is null; false for an empty list; null for a
+    null element (of a non-empty list); true when the element is found;
+    otherwise null if the list holds a null (the element might equal it) and
+    false if not. AQL's ``null IN [null]`` is true and its ``5 IN [1, null]``
+    false. A "true" test needs only the element found and non-null.
+    """
+    if mode == "true":
+        return _three_valued(f"{left} IN {right}", f"{left} NOT IN {right}", (left,), "true")
+    if _is_obvious_non_null(right) and right.startswith("[") and "null" not in right:
+        # A literal list without null: null only for a null element.
+        empty = right.replace(" ", "") == "[]"
+        if mode == "false":
+            return (
+                "true"
+                if empty
+                else _three_valued(f"{left} IN {right}", f"{left} NOT IN {right}", (left,), mode)
+            )
+        return (
+            "false" if empty else _three_valued(f"{left} IN {right}", f"{left} NOT IN {right}", (left,), None)
+        )
+    simple = re.compile(r"@?\w+(?:\.\w+)*")
+    if mode == "false" and simple.fullmatch(left.strip()) and simple.fullmatch(right.strip()):
+        # Definitely not in the list: the list is empty, or the element is
+        # non-null, absent, and the list holds no null it might equal.
+        return (
+            f"({right} != null AND (LENGTH({right}) == 0 OR "
+            f"({left} != null AND {left} NOT IN {right} AND null NOT IN {right})))"
+        )
+    k = len(re.findall(r"FOR _inl\d+ IN", left + right))
+    lhs, rhs = left, right
+    if not (simple.fullmatch(left.strip()) and simple.fullmatch(right.strip())):
+        # Evaluate computed operands once rather than repeat them.
+        lhs, rhs = f"_inl{k}", f"_inr{k}"
+    found_or_unknown = f"({lhs} IN {rhs} ? true : null IN {rhs} ? null : false)"
+    value = f"({rhs} == null ? null : LENGTH({rhs}) == 0 ? false : {lhs} == null ? null : {found_or_unknown})"
+    if lhs != left:
+        value = f"FIRST(FOR {lhs} IN [{left}] FOR {rhs} IN [{right}] RETURN {value})"
+    if mode == "false":
+        return f"({value} == false)"
+    return value
+
+
 def _compile_comparison(
     left: str, op: str, right: str, mode: str | None, *, compared: tuple[str, str] | None = None
 ) -> str:
@@ -246,6 +291,7 @@ def _is_predicate_transparent(ctx: Any) -> bool:
             CypherParser.OC_AndExpressionContext,
             CypherParser.OC_NotExpressionContext,
             CypherParser.OC_ComparisonExpressionContext,
+            CypherParser.OC_InExpressionContext,
             CypherParser.OC_StringListNullOperatorExpressionContext,
         ),
     ):
@@ -283,7 +329,10 @@ def _is_two_valued(ctx: Any) -> bool:
     if isinstance(ctx, CypherParser.OC_ComparisonExpressionContext):
         if ctx.oC_PartialComparisonExpression():
             return False
-        return _is_two_valued(ctx.oC_AddOrSubtractExpression())
+        return _is_two_valued(ctx.oC_InExpression())
+    if isinstance(ctx, CypherParser.OC_InExpressionContext):
+        terms = ctx.oC_AddOrSubtractExpression()
+        return len(terms) == 1 and _is_two_valued(terms[0])
     term = _single_term(ctx)
     if term is not None:
         return _is_two_valued(term)

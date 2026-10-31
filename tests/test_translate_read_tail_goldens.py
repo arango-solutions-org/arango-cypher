@@ -71,3 +71,27 @@ def test_edge_uniqueness_across_groups():
 def test_undirected_merged_hops_keep_edges_distinct_from_earlier_ones():
     aql = _aql("MATCH (n:User)-[:FOLLOWS]->(m)-[:FOLLOWS]-(o)-[:FOLLOWS]-(p) RETURN p")
     assert "._id != r._id" in aql
+
+
+def test_bound_start_keeps_its_pattern_labels():
+    """``WITH a MATCH (a:Doc)-->(b)``: the label filters the bound node (Match3 [25])."""
+    aql = _aql("MATCH (a:User)-[r:FOLLOWS]->() WITH r, a MATCH (a:Doc)-[r]->(b) RETURN b")
+    assert "aLabelValue" in aql or "LabelValue" in aql
+
+
+def test_unwind_of_null_and_scalars():
+    assert "FOR x IN []" in _aql("UNWIND null AS x RETURN x")
+    assert "FOR x IN [1]" in _aql("UNWIND 1 AS x RETURN x")
+    assert "FOR x IN @xs" in _aql("UNWIND $xs AS x RETURN x")
+
+
+def test_skip_computed_at_run_time_is_refused():
+    from arango_query_core import CoreError
+
+    with pytest.raises(CoreError, match="computed at run time"):
+        _aql("MATCH (n:User) WITH n SKIP toInteger(rand() * 9) RETURN n")
+
+
+def test_with_where_reads_a_projected_expression_by_its_key():
+    aql = _aql("MATCH (a:User) WITH DISTINCT a.name AS name WHERE a.name = 'B' RETURN name")
+    assert "FILTER (name == 'B')" in aql
