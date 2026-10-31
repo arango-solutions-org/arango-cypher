@@ -163,13 +163,11 @@ from .three_valued import (
     compile_in,
 )
 from .unwind import _translate_standalone_unwind, unwind_source
+from .write_create import _translate_create_query
+from .write_foreach import _translate_foreach_query
 from .write_guards import refuse_dropped_writes
-from .writes import (
-    _translate_create_query,
-    _translate_foreach_query,
-    _translate_merge_query,
-    _translate_mutating_query,
-)
+from .write_merge import _translate_merge_query
+from .write_mutate import _translate_mutating_query
 
 
 def translate_v0(
@@ -2194,7 +2192,7 @@ def _append_multipart_merge_tail(
     handler already folded it into ``lines``), and mixing MERGE with other
     write clauses is ambiguous — both are refused rather than mis-compiled.
     """
-    from .writes import _translate_merge_query
+    from .write_merge import _translate_merge_query
 
     if tail_reading:
         raise CoreError(
@@ -2237,7 +2235,8 @@ def _append_multipart_create_tail(
     SET/DELETE/REMOVE after WITH are handled by ``_append_multipart_mutate_tail``
     before this helper is called.
     """
-    from .writes import _compile_create, _compile_return_for_create, _property_writes
+    from .write_create import _compile_create, _compile_return_for_create
+    from .writes import _property_writes
 
     create_clauses: list[CypherParser.OC_CreateContext] = []
     set_clauses: list[CypherParser.OC_SetContext] = []

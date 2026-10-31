@@ -570,7 +570,9 @@ lowercase forms, and the eight-digit `\UXXXXXXXX` (absent from AQL) becomes a
 `\u` surrogate pair (`_aql_string_from_cypher`).
 
 The translator core lives in `arango_cypher/_translate_v0/` (`core.py`,
-`writes.py`, `formatting.py`, shared `state.py` contextvars). Translation results
+`writes.py` with the write translators `write_create.py`, `write_merge.py`,
+`write_mutate.py` and `write_foreach.py`, `formatting.py`, shared `state.py`
+contextvars). Translation results
 are LRU-cached (256 entries).
 
 ### 8.2 Supported subset (read)
