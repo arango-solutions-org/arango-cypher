@@ -53,3 +53,19 @@ def outer_bound_names(ctx: Any) -> set[str]:
 
     walk(_statement_root(ctx))
     return names
+
+
+def is_referenced(name: str, declaration: Any) -> bool:
+    """Whether the statement around *declaration* names *name* anywhere else."""
+
+    def walk(node: Any) -> bool:
+        if node is declaration:
+            return False
+        if isinstance(node, CypherParser.OC_VariableContext) and node.getText().strip() == name:
+            return True
+        return any(
+            walk(node.getChild(i))
+            for i in range(node.getChildCount() if hasattr(node, "getChildCount") else 0)
+        )
+
+    return walk(_statement_root(declaration))

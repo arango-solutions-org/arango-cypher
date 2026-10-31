@@ -52,7 +52,12 @@ from .const_eval import _const_env, aql_number_literal, bind_with_constants, try
 from .conversions import compile_to_boolean, compile_to_float, compile_to_integer, compile_to_string
 from .deletes import translate_delete_query
 from .distinct_order import append_distinct_return, live_sort_terms, order_keeping_collect
-from .formatting import _guard_varlength_edge_types, _prepend_with_collections, _reindent_aql
+from .formatting import (
+    _guard_varlength_edge_types,
+    _prepend_with_collections,
+    _reindent_aql,
+    empty_varlength_ranges,
+)
 from .graph_functions import compile_keys, compile_labels, compile_properties
 from .hints import (
     _build_collection_index_hint,
@@ -92,7 +97,7 @@ from .naming import (
 from .pattern_reversal import from_bound_end
 from .percentiles import parse_percentile, percentile_value
 from .pipeline_writes import append_midquery_writes, refuse_after_write, split_writes
-from .scopes import outer_bound_names
+from .scopes import is_referenced, outer_bound_names
 from .semantic_check import check_semantics
 from .shortest_path import (
     compile_shortest_path,
@@ -120,6 +125,7 @@ from .state import (
     _active_warnings,
     _HopMeta,
     _object_rows,
+    _pending_unwinds,
     _temporal_vars,
 )
 from .string_predicates import compile_string_predicate
@@ -209,7 +215,7 @@ def translate_v0(
         # The variable-length guard reads one edge collection per traversal,
         # so it runs before several types expand into several collections.
         guarded = AqlQuery(
-            text=_guard_varlength_edge_types(result.text),
+            text=_guard_varlength_edge_types(empty_varlength_ranges(result.text)),
             bind_vars=result.bind_vars,
             debug=result.debug,
             warnings=result.warnings,
@@ -461,13 +467,28 @@ def _translate_single_query(
         mandatory_matches.append(optional_matches.pop(0))
         sole_optional = True
 
-    result = _translate_match_body(
-        mandatory_matches,
-        spq=spq,
-        optional_matches=optional_matches,
-        resolver=resolver,
-        bind_vars=bind_vars,
-    )
+    unwinds_token = None
+    if post_unwinds and not pre_unwinds:
+        unwind_lines: list[str] = []
+        unwind_vars: list[str] = []
+        for uw in post_unwinds:
+            expr = _compile_expression(uw.oC_Expression(), bind_vars)
+            var = uw.oC_Variable().getText().strip()
+            unwind_lines.append(f"  FOR {var} IN {expr}")
+            unwind_vars.append(var)
+        unwinds_token = _pending_unwinds.set((unwind_lines, unwind_vars))
+        post_unwinds = []
+    try:
+        result = _translate_match_body(
+            mandatory_matches,
+            spq=spq,
+            optional_matches=optional_matches,
+            resolver=resolver,
+            bind_vars=bind_vars,
+        )
+    finally:
+        if unwinds_token is not None:
+            _pending_unwinds.reset(unwinds_token)
 
     if pre_unwinds or post_unwinds:
         result_lines = result.text.splitlines()
@@ -593,7 +614,10 @@ def _emit_single_hop(
             )
 
     rmin, rmax = h.rel_range
-    trav_line = f"  FOR {h.v_trav}, {h.rel_var} IN {rmin}..{rmax} {h.direction} {current_var} {_aql_collection_ref(h.edge_key)}"
+    trav_vars = f"{h.v_trav}, {h.rel_var}" + (f", {h.hop_path}" if h.hop_path else "")
+    trav_line = (
+        f"  FOR {trav_vars} IN {rmin}..{rmax} {h.direction} {current_var} {_aql_collection_ref(h.edge_key)}"
+    )
     vci_opts = _build_vci_options([h], resolver)
     if vci_opts:
         trav_line += f" {vci_opts}"
@@ -642,6 +666,27 @@ def _emit_single_hop(
         lines.append(f"    FILTER {f}")
     for f in h.v_prop_filters:
         lines.append(f"    FILTER {f}")
+    if h.rel_list is not None and h.hop_path is not None:
+        lines.append(f"    LET {h.rel_list} = {h.hop_path}.edges")
+
+
+def _path_array(pieces: list[str]) -> str:
+    """An AQL array of path elements; a ``...expr`` piece is spliced in (an array)."""
+    if not any(p.startswith("...") for p in pieces):
+        return "[" + ", ".join(pieces) + "]"
+    arrays: list[str] = []
+    singles: list[str] = []
+    for p in pieces:
+        if p.startswith("..."):
+            if singles:
+                arrays.append("[" + ", ".join(singles) + "]")
+                singles = []
+            arrays.append(p[3:])
+        else:
+            singles.append(p)
+    if singles:
+        arrays.append("[" + ", ".join(singles) + "]")
+    return arrays[0] if len(arrays) == 1 else f"UNION({', '.join(arrays)})"
 
 
 def _self_loop_direction(direction: str, *, back_to_start: bool, rel_range: tuple[int, int]) -> str:
@@ -1311,6 +1356,21 @@ def _translate_match_body(
         forbidden_vars.add(rel_var)
 
         r_prop_filters = _compile_relationship_pattern_properties(rel_pat, var=rel_var, bind_vars=bind_vars)
+        hop_path: str | None = None
+        rel_list: str | None = None
+        is_varlen = detail is not None and detail.oC_RangeLiteral() is not None
+        rel_used = rel_named and is_referenced(rel_var, detail.oC_Variable())
+        if is_varlen and (rel_used or path_var_name is not None or r_prop_filters):
+            # A variable-length relationship is the list of its edges: the
+            # traversal's path supplies them, every one must match the
+            # pattern's properties, and ``r`` names the list.
+            hop_path = _pick_fresh_var(f"_vp_{rel_var}", forbidden_vars=forbidden_vars)
+            if rel_used:
+                rel_list = rel_var
+                rel_var = _pick_fresh_var(_affix_name(rel_var, suffix="_last"), forbidden_vars=forbidden_vars)
+            if r_prop_filters:
+                each = _compile_relationship_pattern_properties(rel_pat, var="CURRENT", bind_vars=bind_vars)
+                r_prop_filters = [f"LENGTH({hop_path}.edges[* FILTER NOT ({c})]) == 0" for c in each]
         direction = _self_loop_direction(
             _relationship_direction(rel_pat),
             back_to_start=v_bound and v_var == hop_start,
@@ -1377,6 +1437,8 @@ def _translate_match_body(
                 edge_key=edge_key,
                 r_type_field=r_type_field,
                 r_type_value=r_type_value,
+                hop_path=hop_path,
+                rel_list=rel_list,
             )
         )
 
@@ -1398,6 +1460,8 @@ def _translate_match_body(
             and h.direction == prev.direction
             and h.rel_range == (1, 1)
             and prev.rel_range == (1, 1)
+            and h.hop_path is None
+            and prev.hop_path is None
             and not h.v_bound
             and not prev.v_bound
             and h.r_type_field == prev.r_type_field
@@ -1422,8 +1486,13 @@ def _translate_match_body(
             )
             h = hops[group[0]]
             current_var = h.v_trav
-            path_node_vars.append(h.v_trav)
-            path_edge_vars.append(h.rel_var)
+            if h.hop_path is not None:
+                # Every vertex after the start, and every edge, of the hop.
+                path_node_vars.append(f"...SLICE({h.hop_path}.vertices, 1)")
+                path_edge_vars.append(f"...{h.hop_path}.edges")
+            else:
+                path_node_vars.append(h.v_trav)
+                path_edge_vars.append(h.rel_var)
         else:
             _emit_merged_hops(
                 [hops[i] for i in group],
@@ -1472,8 +1541,8 @@ def _translate_match_body(
 
     # Emit named path LET if a path variable was declared
     if path_var_name is not None:
-        nodes_arr = "[" + ", ".join(path_node_vars) + "]"
-        edges_arr = "[" + ", ".join(path_edge_vars) + "]"
+        nodes_arr = _path_array(path_node_vars)
+        edges_arr = _path_array(path_edge_vars)
         lines.append(f"    LET {path_var_name} = {{nodes: {nodes_arr}, edges: {edges_arr}}}")
         forbidden_vars.add(path_var_name)
         pvars = _active_path_vars.get()
@@ -1611,6 +1680,10 @@ def _translate_computational_multi_part(
         lines.append(f"FOR {aql_var} IN {expr}")
         var_env[var] = aql_var
         forbidden.add(aql_var)
+        # In scope for ``RETURN *`` / ``WITH *`` (Unwind1 [11]).
+        user_vars = list(_active_user_vars.get())
+        if var not in user_vars:
+            _active_user_vars.set([*user_vars, var])
 
     def _emit_reading(rc: CypherParser.OC_ReadingClauseContext) -> None:
         call = subquery_call(rc)
@@ -4133,6 +4206,16 @@ def _append_return(
     var_env: dict[str, str] | None = None,
     rel_type_exprs: dict[str, str] | None = None,
 ) -> None:
+    pending = _pending_unwinds.get()
+    if pending is not None:
+        # ``MATCH … UNWIND … RETURN``: the UNWIND loops come before the
+        # projection's COLLECT/SORT/LIMIT, and their variables are in scope.
+        _pending_unwinds.set(None)
+        unwind_lines, unwind_vars = pending
+        lines.extend(unwind_lines)
+        _active_user_vars.set(
+            [*_active_user_vars.get(), *(v for v in unwind_vars if v not in _active_user_vars.get())]
+        )
     distinct = proj.DISTINCT() is not None
     order_ctx = proj.oC_Order()
 
@@ -5301,11 +5384,8 @@ def _parse_range_literal(
     if len(ints) == 2 and has_dots:
         lo = int(ints[0].getText())
         hi = int(ints[1].getText())
-        if lo > hi:
-            raise CoreError(
-                f"Invalid range: min ({lo}) > max ({hi})",
-                code="UNSUPPORTED",
-            )
+        # ``*2..1`` is an empty interval: it matches nothing
+        # (formatting.empty_varlength_ranges), it is not an error.
         return lo, hi
 
     if len(ints) == 1 and has_dots:

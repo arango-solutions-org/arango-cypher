@@ -1155,6 +1155,8 @@ def create_node_doc(
     supertype labels the mapping requires."""
     param_ref = _create_props_param_ref(node_ctx.oC_Properties(), bind_vars)
     props = [] if param_ref else _compile_create_props(node_ctx.oC_Properties(), bind_vars)
+    # A null property is not stored (Cypher: setting null removes it).
+    props = [(k, v) for k, v in props if v.strip() != "null"]
     extra_fields: list[str] = []
 
     if not labels:
@@ -1292,6 +1294,8 @@ def create_rel_doc(
     rel_props_ctx = detail.oC_Properties()
     param_ref = _create_props_param_ref(rel_props_ctx, bind_vars)
     props = [] if param_ref else _compile_create_rel_props(rel_pat, bind_vars)
+    # A null property is not stored (Cypher: setting null removes it).
+    props = [(k, v) for k, v in props if v.strip() != "null"]
     return _build_insert_doc(props, extra_fields, base=param_ref), edge_coll_key, extra_fields
 
 

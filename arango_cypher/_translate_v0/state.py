@@ -32,6 +32,13 @@ _active_case_insensitive_inline: ContextVar[bool] = ContextVar(
     default=False,
 )
 
+#: ``UNWIND`` clauses after the MATCH of a single-part query, as AQL ``FOR``
+#: lines and their variables: the RETURN compiler emits them first, so they
+#: precede any COLLECT, SORT or LIMIT of the projection (``_append_return``).
+_pending_unwinds: ContextVar[tuple[list[str], list[str]] | None] = ContextVar(
+    "_pending_unwinds", default=None
+)
+
 #: The caller's parameter names: bind variables merged from a CALL subquery
 #: never rename them (``_merge_bind_vars``).
 _active_user_params: ContextVar[frozenset[str]] = ContextVar("_active_user_params", default=frozenset())
@@ -78,6 +85,12 @@ class _HopMeta:
     edge_key: str
     r_type_field: str | None
     r_type_value: str | None
+    #: A variable-length hop whose edges are needed (a named relationship, or
+    #: a named path): the traversal's path variable, and the Cypher name bound
+    #: to its list of edges (``LET r = path.edges``; ``rel_var`` is then the
+    #: traversal's last-edge variable).
+    hop_path: str | None = None
+    rel_list: str | None = None
 
 
 @dataclass(frozen=True)

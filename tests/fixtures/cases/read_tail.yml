@@ -1,0 +1,83 @@
+version: 1
+cases:
+- id: C1401
+  name: "A named variable-length relationship is its list of edges"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "MATCH (a:User)-[r:FOLLOWS*1..2]->(b) RETURN r"
+  expected:
+    aql: "WITH @@uCollection\nFOR a IN @@uCollection\n  FILTER a[@uTypeField] == @uTypeValue\n  FOR b, r_last, _vp_r IN 1..2 OUTBOUND a @@edgeCollection PRUNE r_last != null AND r_last[@relTypeField] != @relTypeValue\n    FILTER IS_SAME_COLLECTION(@vCollection, b)\n    FILTER r_last[@relTypeField] == @relTypeValue\n    LET r = _vp_r.edges\n    RETURN r"
+    bind_vars:
+      "@uCollection": "vertices"
+      "uTypeField": "type"
+      "uTypeValue": "User"
+      "@edgeCollection": "edges"
+      "vCollection": "vertices"
+      "relTypeField": "type"
+      "relTypeValue": "FOLLOWS"
+- id: C1402
+  name: "A named variable-length path spans every hop"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "MATCH p = (a:User)-[:FOLLOWS*0..]->(b) RETURN p"
+  expected:
+    aql: "WITH @@uCollection\nFOR a IN @@uCollection\n  FILTER a[@uTypeField] == @uTypeValue\n  FOR b, r, _vp_r IN 0..10 OUTBOUND a @@edgeCollection PRUNE r != null AND r[@relTypeField] != @relTypeValue\n    FILTER IS_SAME_COLLECTION(@vCollection, b)\n    FILTER (r == null OR r[@relTypeField] == @relTypeValue)\n    LET p = {nodes: UNION([a], SLICE(_vp_r.vertices, 1)), edges: _vp_r.edges}\n    RETURN p"
+    bind_vars:
+      "@uCollection": "vertices"
+      "uTypeField": "type"
+      "uTypeValue": "User"
+      "@edgeCollection": "edges"
+      "vCollection": "vertices"
+      "relTypeField": "type"
+      "relTypeValue": "FOLLOWS"
+- id: C1403
+  name: "Variable-length relationship properties hold for every edge"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "MATCH (a:User)-[:FOLLOWS* {w: 1}]->(b) RETURN b"
+  expected:
+    aql: "WITH @@uCollection\nFOR a IN @@uCollection\n  FILTER a[@uTypeField] == @uTypeValue\n  FOR b, r, _vp_r IN 1..10 OUTBOUND a @@edgeCollection PRUNE r != null AND r[@relTypeField] != @relTypeValue\n    FILTER IS_SAME_COLLECTION(@vCollection, b)\n    FILTER r[@relTypeField] == @relTypeValue\n    FILTER LENGTH(_vp_r.edges[* FILTER NOT ((CURRENT.w == 1))]) == 0\n    RETURN b"
+    bind_vars:
+      "@uCollection": "vertices"
+      "uTypeField": "type"
+      "uTypeValue": "User"
+      "@edgeCollection": "edges"
+      "vCollection": "vertices"
+      "relTypeField": "type"
+      "relTypeValue": "FOLLOWS"
+- id: C1404
+  name: "An empty variable-length interval matches nothing"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "MATCH (a:User)-[:FOLLOWS*2..1]->(b) RETURN b"
+  expected:
+    aql: "WITH @@uCollection\nFOR a IN @@uCollection\n  FILTER a[@uTypeField] == @uTypeValue\n  FOR b, r IN 0..0 OUTBOUND a @@edgeCollection PRUNE r != null AND r[@relTypeField] != @relTypeValue\n    FILTER false\n    FILTER IS_SAME_COLLECTION(@vCollection, b)\n    FILTER (r == null OR r[@relTypeField] == @relTypeValue)\n    RETURN b"
+    bind_vars:
+      "@uCollection": "vertices"
+      "uTypeField": "type"
+      "uTypeValue": "User"
+      "@edgeCollection": "edges"
+      "vCollection": "vertices"
+      "relTypeField": "type"
+      "relTypeValue": "FOLLOWS"
+- id: C1405
+  name: "UNWIND after MATCH comes before the projection's COLLECT"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "MATCH (n:User) UNWIND keys(n) AS k RETURN DISTINCT k"
+  expected:
+    aql: "FOR n IN @@collection\n  FILTER n[@typeField] == @typeValue\n  FOR k IN (IS_OBJECT(n) AND HAS(n, '_id') ? ATTRIBUTES(n)[* FILTER CURRENT NOT IN [\"_id\", \"_key\", \"_rev\", \"_from\", \"_to\", \"type\"]] : ATTRIBUTES(n))\n    COLLECT k_distinct = k\n    RETURN k_distinct"
+    bind_vars:
+      "@collection": "vertices"
+      "typeField": "type"
+      "typeValue": "User"
+- id: C1406
+  name: "CREATE stores no null property"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "CREATE (n:User {name: 'a', gone: null})"
+  expected:
+    aql: "INSERT {type: @typeValue, name: 'a'} INTO @@collection"
+    bind_vars:
+      "@collection": "vertices"
+      "typeValue": "User"
