@@ -127,12 +127,31 @@ def test_temporal_errors(expr: str, category: str, cypher_class: str) -> None:
         "localtime.realtime('Europe/Berlin')",
         "time.transaction({timezone: '+01:00'})",
         "localdatetime({timezone: 'Europe/Berlin'})",
-        "duration.inSeconds(localtime(), localtime())",
+        # different readings of the clock
+        "duration.between(date.transaction(), date())",
+        "duration.between(date.realtime(), date.realtime())",
+        "duration.between(date(), localdatetime())",
+        "duration.inSeconds(datetime.statement('Europe/Berlin'), datetime.statement('Europe/Berlin'))",
     ],
 )
 def test_clock_readings_are_not_constant(expr: str) -> None:
     with pytest.raises(NotConstant):
         _eval(expr)
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        "duration.inSeconds(localtime(), localtime())",
+        "duration.between(date(), date.statement())",
+        "duration.inMonths(datetime.transaction(), datetime.transaction())",
+        "duration.inDays(localdatetime( ), localdatetime())",
+        "duration.between(time(), time())",
+    ],
+)
+def test_one_clock_reading_twice_is_a_zero_duration(expr: str) -> None:
+    """Neo4j reads the statement (or transaction) clock once: TCK Temporal10 [12]."""
+    assert str(_eval(expr)) == "PT0S"
 
 
 def test_error_mapping() -> None:

@@ -41,7 +41,7 @@ from collections.abc import Iterator
 from antlr4 import ParserRuleContext
 
 from .._antlr.CypherParser import CypherParser
-from .semantic_aggregation import check_aggregation
+from .semantic_aggregation import check_aggregation, contains_aggregate
 from .semantic_errors import semantic_error
 from .semantic_expr import ExpressionChecker, Scope, bare_variable, sole_operand, variable_name
 from .semantic_types import (
@@ -182,13 +182,30 @@ class _QueryChecker:
             self.clause(clause, inner)
 
     def procedure_call(self, ctx: CypherParser.OC_InQueryCallContext, scope: Scope) -> None:
-        self.expr.visit(ctx.oC_ExplicitProcedureInvocation(), scope)
+        """An in-query ``CALL p(args) YIELD …``: the arguments are not
+        aggregates; ``YIELD`` binds new names only, each once (``YIELD *``
+        is for a standalone call); without ``YIELD`` nothing is bound."""
+        invocation = ctx.oC_ExplicitProcedureInvocation()
+        for arg in invocation.oC_Expression() or []:
+            if contains_aggregate(arg):
+                raise semantic_error(
+                    "InvalidAggregation", f"an aggregate in a procedure argument: {arg.getText()}"
+                )
+        self.expr.visit(invocation, scope)
         items = ctx.oC_YieldItems()
-        if items is None or items.getChild(0).getText() == "*":
-            scope[_OPEN] = T_ANY
+        if items is None:
             return
+        if items.getChild(0).getText() == "*":
+            raise semantic_error("UnexpectedSyntax", "YIELD * is only allowed in a standalone procedure call")
+        yielded: set[str] = set()
         for item in items.oC_YieldItem():
-            scope[variable_name(item.oC_Variable())] = T_ANY
+            name = variable_name(item.oC_Variable())
+            if name in scope or name in yielded:
+                raise semantic_error(
+                    "VariableAlreadyBound", f"Variable `{name}` already declared (YIELD ... {name})"
+                )
+            yielded.add(name)
+            scope[name] = T_ANY
         if items.oC_Where() is not None:
             self.expr.predicate(items.oC_Where().oC_Expression(), scope, where="WHERE")
 
