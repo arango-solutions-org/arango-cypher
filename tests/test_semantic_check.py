@@ -192,6 +192,16 @@ REJECTED = [
         TYPE_ERROR_CODE,
     ),
     ("MATCH (n)-[r:T]->() RETURN [x IN [r, 0] | type(x)] AS l", "InvalidArgumentValue", TYPE_ERROR_CODE),
+    # A pattern expression used as a value (UnexpectedSyntax, Neo4j 5).
+    ("MATCH (a) RETURN size((a)-->())", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
+    ("MATCH (a), (b) RETURN size((a)-[:REL]->(b))", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
+    ("MATCH (n) RETURN (n)-[]->()", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
+    ("MATCH (n) WITH (n)-[]->() AS x RETURN x", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
+    ("MATCH (n) SET n.prop = head(nodes(head((n)-[:REL]->()))).foo", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
+    ("MATCH (n) WHERE size((n)-->()) > 1 RETURN n", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
+    ("MATCH (n) WHERE (n)-->() = true RETURN n", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
+    ("MATCH (n) RETURN CASE WHEN true THEN (n)-->() END AS c", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
+    ("MATCH (n) RETURN [(n)-->()] AS l", "UnexpectedSyntax", SEMANTIC_ERROR_CODE),
 ]
 
 
@@ -294,6 +304,15 @@ ACCEPTED = [
     "MATCH (n) CALL { WITH n RETURN n.x, n AS m } MATCH (m)-->() RETURN m",
     "MATCH (n) DELETE n",
     "MATCH (n) SET n.x = 1, n:Label REMOVE n.y",
+    # Pattern expressions as predicates, and their replacements as values.
+    "MATCH (n) WHERE (n)-->() RETURN n",
+    "MATCH (n) WHERE NOT (n)-->() AND n.x > 1 OR (n)<--() RETURN n",
+    "MATCH (n) WHERE ((n)-->()) RETURN n",
+    "MATCH (n) RETURN exists((n)-->()) AS e",
+    "MATCH (n) RETURN CASE WHEN (n)-->() THEN 1 ELSE 0 END AS c",
+    "MATCH (n) RETURN [x IN [n] WHERE (x)-->()] AS l",
+    "MATCH (n) RETURN COUNT { (n)-->() } AS c, EXISTS { (n)-->() } AS e",
+    "MATCH (n) RETURN [p = (n)-->() | p] AS paths",
 ]
 
 
@@ -311,6 +330,17 @@ def test_translate_raises_the_semantic_error_not_unsupported() -> None:
     assert isinstance(info.value, CypherSemanticError)
     assert info.value.code == SEMANTIC_ERROR_CODE
     assert "VariableTypeConflict" in str(info.value)
+
+
+def test_pattern_expression_message_names_the_replacements() -> None:
+    message = str(_rejection("MATCH (d) RETURN size((d)--()) AS degree"))
+    assert message.startswith("UnexpectedSyntax")
+    assert "COUNT { (d)--() }" in message and "EXISTS { (d)--() }" in message
+
+
+def test_count_subquery_replacement_translates() -> None:
+    out = translate("MATCH (d:User) RETURN COUNT { (d)--() } AS degree", mapping=mapping_bundle_for("lpg"))
+    assert "LENGTH(FOR" in out.aql
 
 
 def test_translate_still_translates_a_valid_query() -> None:

@@ -502,7 +502,14 @@ each one is shown to have, and rejects: a variable bound twice
 re-declared in `CREATE`/`MERGE` alone or with labels/properties, a bound
 relationship in `CREATE`/`MERGE`, `UNWIND` onto a bound name); one name used as
 two kinds of value (`VariableTypeConflict`); a pattern predicate introducing a
-variable (`UndefinedVariable`); a value of the wrong type where the query shows
+variable (`UndefinedVariable`); a pattern expression used as a value
+(`UnexpectedSyntax`, as in Neo4j 5): `size((a)-->())`, `RETURN (a)-->()`,
+`WITH (a)-->() AS x`. A pattern expression is valid only as a predicate: a
+`WHERE` condition, an operand of `AND`/`OR`/`XOR`/`NOT`, a `CASE WHEN`
+condition, or `exists()`'s argument. The message names the replacements:
+`COUNT { (a)-->() }`, `EXISTS { (a)-->() }`, or a pattern comprehension. The
+old `size((a)-->())` used to translate to `LENGTH()` of a boolean, a silently
+wrong count. A value of the wrong type where the query shows
 the type (`InvalidArgumentType` — `NOT`/`AND`/`OR`/`XOR`/`WHERE` over a
 non-boolean, arithmetic on strings/booleans/lists/maps/graph elements, `IN` a
 non-list, subscripting a scalar or a list with a non-integer, a property read
