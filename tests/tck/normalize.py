@@ -112,12 +112,16 @@ def normalize_actual_value(value: Any, *, as_node: bool = False, as_rel: bool = 
     if isinstance(value, dict):
         if _is_actual_path(value):
             return _normalize_actual_path(value)
-        if "_id" in value and not (as_node or as_rel):
+        if "_id" in value:
             # A stored document is a node or a relationship whatever the
-            # column's expected cell looks like (a list element, a map
-            # value): an edge document carries ``_from``/``_to``.
+            # column's expected cells look like (a list element, a map value,
+            # a column mixing nodes, relationships and maps): an edge document
+            # carries ``_from``/``_to``.
             as_rel = "_from" in value and "_to" in value
             as_node = not as_rel
+        else:
+            # A map is a map, even in a column whose other cells are nodes.
+            as_node = as_rel = False
         strip_keys = _ARANGO_EDGE_META_KEYS if as_rel else _ARANGO_META_KEYS
         cleaned = {k: normalize_actual_value(v) for k, v in value.items() if k not in strip_keys}
         if as_node:

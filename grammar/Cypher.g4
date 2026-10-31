@@ -308,7 +308,15 @@ oC_NotExpression
 NOT : ( 'N' | 'n' ) ( 'O' | 'o' ) ( 'T' | 't' ) ;
 
 oC_ComparisonExpression
- : oC_AddOrSubtractExpression ( SP? oC_PartialComparisonExpression )* ;
+ : oC_InExpression ( SP? oC_PartialComparisonExpression )* ;
+
+// List element containment binds looser than + and - and than postfix
+// subscripts and slices, tighter than comparison (openCypher / Neo4j:
+// `3 IN list[0]` is `3 IN (list[0])`, `[1] + 2 IN [3] + 4` is
+// `([1] + 2) IN ([3] + 4)`, `false = true IN [true]` is `false = (true IN [true])`).
+// The openCypher 9 grammar listed IN among the postfix list operators.
+oC_InExpression
+ : oC_AddOrSubtractExpression ( SP IN SP? oC_AddOrSubtractExpression )* ;
 
 oC_AddOrSubtractExpression
  : oC_MultiplyDivideModuloExpression ( ( SP? '+' SP? oC_MultiplyDivideModuloExpression ) | ( SP? '-' SP? oC_MultiplyDivideModuloExpression ) )* ;
@@ -326,8 +334,7 @@ oC_StringListNullOperatorExpression
  : oC_PropertyOrLabelsExpression ( oC_StringOperatorExpression | oC_ListOperatorExpression | oC_NullOperatorExpression )* ;
 
 oC_ListOperatorExpression
- : ( SP IN SP? oC_PropertyOrLabelsExpression )
- | ( SP? '[' oC_Expression ']' )
+ : ( SP? '[' oC_Expression ']' )
  | ( SP? '[' oC_Expression? '..' oC_Expression? ']' )
  ;
 
@@ -420,12 +427,12 @@ oC_ListLiteral
  : '[' SP? ( oC_Expression SP? ( ',' SP? oC_Expression SP? )* )? ']' ;
 
 oC_PartialComparisonExpression
- : ( '=' SP? oC_AddOrSubtractExpression )
- | ( '<>' SP? oC_AddOrSubtractExpression )
- | ( '<' SP? oC_AddOrSubtractExpression )
- | ( '>' SP? oC_AddOrSubtractExpression )
- | ( '<=' SP? oC_AddOrSubtractExpression )
- | ( '>=' SP? oC_AddOrSubtractExpression )
+ : ( '=' SP? oC_InExpression )
+ | ( '<>' SP? oC_InExpression )
+ | ( '<' SP? oC_InExpression )
+ | ( '>' SP? oC_InExpression )
+ | ( '<=' SP? oC_InExpression )
+ | ( '>=' SP? oC_InExpression )
  ;
 
 oC_ParenthesizedExpression

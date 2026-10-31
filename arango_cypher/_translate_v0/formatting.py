@@ -167,3 +167,25 @@ def _guard_varlength_edge_types(text: str) -> str:
     for start, end, replacement in sorted(edits, reverse=True):
         text = text[:start] + replacement + text[end:]
     return text
+
+
+_ANY_TRAVERSAL_RANGE_RE = re.compile(
+    r"(?P<head>\bFOR [\w, ]+ IN )(?P<min>\d+)\.\.(?P<max>\d+)(?= (?:OUTBOUND|INBOUND|ANY) )"
+)
+
+
+def empty_varlength_ranges(text: str) -> str:
+    """A variable-length range whose minimum exceeds its maximum (``*2..1``,
+    ``*..0``) matches nothing, as in Cypher; AQL refuses such a depth (ERR
+    1501). The traversal keeps a valid ``0..0`` depth and is followed by
+    ``FILTER false``."""
+    out: list[str] = []
+    for line in text.split("\n"):
+        m = _ANY_TRAVERSAL_RANGE_RE.search(line)
+        if m and int(m.group("min")) > int(m.group("max")):
+            indent = line[: len(line) - len(line.lstrip())]
+            out.append(line[: m.start("min")] + "0..0" + line[m.end("max") :])
+            out.append(f"{indent}  FILTER false")
+            continue
+        out.append(line)
+    return "\n".join(out)

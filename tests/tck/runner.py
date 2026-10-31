@@ -131,6 +131,12 @@ def _extract_labels_and_types(cypher: str) -> tuple[set[str], set[str]]:
     for m in re.finditer(r"\(\s*\w*\s*((?:\s*:\s*[A-Za-z_]\w*)+)", cypher):
         for lab in re.findall(r":\s*([A-Za-z_]\w*)", m.group(1)):
             labels.add(lab)
+    # A label predicate in an expression: ``WHERE m:NonExistent``, ``RETURN a:B``.
+    # (A map entry ``{k: v}`` with a variable value also matches; mapping an
+    # extra label is harmless.)
+    for m in re.finditer(r"(?<![\w.$`[])[A-Za-z_]\w*((?:[ \t]*:[ \t]*[A-Za-z_]\w*)+)", cypher):
+        for lab in re.findall(r":\s*([A-Za-z_]\w*)", m.group(1)):
+            labels.add(lab)
     # ``[:T]``, ``[r: T]``, ``[:T|U]``, ``[:T|:U]``.
     for m in re.finditer(r"\[\s*\w*\s*:\s*([A-Za-z_]\w*(?:\s*\|\s*:?\s*[A-Za-z_]\w*)*)", cypher):
         for rel_type in re.findall(r"[A-Za-z_]\w*", m.group(1)):
@@ -430,7 +436,9 @@ def _execute_create_part(
                 doc["type"] = t["labels"][0]
             if len(t["labels"]) > 1:
                 doc["labels"] = t["labels"]
-            doc.update(t["props"])
+            doc.update(
+                {k: v for k, v in t["props"].items() if v is not None}
+            )  # Cypher stores no null property
 
             for k, v in list(doc.items()):
                 if isinstance(v, str) and " + " in v:
@@ -476,7 +484,7 @@ def _execute_create_part(
             edge_doc: dict[str, Any] = {"_from": from_id, "_to": to_id}
             if t["type"]:
                 edge_doc["type"] = t["type"]
-            edge_doc.update(t["props"])
+            edge_doc.update({k: v for k, v in t["props"].items() if v is not None})
             try:
                 edge_coll.insert(edge_doc)
             except Exception as e:

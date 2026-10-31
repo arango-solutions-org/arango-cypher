@@ -214,11 +214,18 @@ class ExpressionChecker:
         return T_BOOL
 
     def _comparison(self, ctx: CypherParser.OC_ComparisonExpressionContext, scope: Scope) -> SType:
-        t = self.visit(ctx.oC_AddOrSubtractExpression(), scope)
+        t = self.visit(ctx.oC_InExpression(), scope)
         partials = ctx.oC_PartialComparisonExpression()
         for partial in partials:
-            self.visit(partial.oC_AddOrSubtractExpression(), scope)
+            self.visit(partial.oC_InExpression(), scope)
         return T_BOOL if partials else t
+
+    def _in(self, ctx: CypherParser.OC_InExpressionContext, scope: Scope) -> SType:
+        terms = ctx.oC_AddOrSubtractExpression()
+        t = self.visit(terms[0], scope)
+        for term in terms[1:]:
+            t = _membership(self.visit(term, scope), term)
+        return t
 
     # -- arithmetic ---------------------------------------------------------
 
@@ -294,31 +301,18 @@ class ExpressionChecker:
         self, ctx: CypherParser.OC_StringListNullOperatorExpressionContext, scope: Scope
     ) -> SType:
         t = self.visit(ctx.oC_PropertyOrLabelsExpression(), scope)
-        # The grammar chains these operators flat: in ``x IN list[0]`` the
-        # subscript belongs to the IN's right-hand side, so the container's
-        # type is settled only at the next operator that is not a subscript.
-        container: tuple[SType, ParserRuleContext] | None = None
+        # ``IN`` is a level of its own (``_in``); these are subscripts,
+        # slices and the string and null predicates.
         for op in ctx.getChildren():
             if not isinstance(op, ParserRuleContext):
                 continue
-            if isinstance(op, _P.OC_ListOperatorExpressionContext) and op.IN() is None:
-                if container is not None:
-                    container = (self._list_access(container[0], op, scope), container[1])
-                else:
-                    t = self._list_access(t, op, scope)
-                continue
-            if container is not None:
-                t = _membership(*container)
-                container = None
             if isinstance(op, _P.OC_ListOperatorExpressionContext):
-                container = (self.visit(op.oC_PropertyOrLabelsExpression(), scope), op)
+                t = self._list_access(t, op, scope)
             elif isinstance(op, _P.OC_StringOperatorExpressionContext):
                 self.visit(op.oC_PropertyOrLabelsExpression(), scope)
                 t = T_BOOL
             elif isinstance(op, _P.OC_NullOperatorExpressionContext):
                 t = T_BOOL
-        if container is not None:
-            t = _membership(*container)
         return t
 
     def _list_access(
@@ -532,6 +526,7 @@ _PASS_THROUGH = frozenset(
         _P.OC_AndExpressionContext,
         _P.OC_NotExpressionContext,
         _P.OC_ComparisonExpressionContext,
+        _P.OC_InExpressionContext,
         _P.OC_AddOrSubtractExpressionContext,
         _P.OC_MultiplyDivideModuloExpressionContext,
         _P.OC_PowerOfExpressionContext,
@@ -634,6 +629,7 @@ _TRANSPARENT_LEVELS = (
     _P.OC_PowerOfExpressionContext,
     _P.OC_MultiplyDivideModuloExpressionContext,
     _P.OC_AddOrSubtractExpressionContext,
+    _P.OC_InExpressionContext,
 )
 _BOOLEAN_LEVELS = (_P.OC_AndExpressionContext, _P.OC_XorExpressionContext, _P.OC_OrExpressionContext)
 
@@ -722,6 +718,7 @@ _HANDLERS = {
     _P.OC_AndExpressionContext: ExpressionChecker._and,
     _P.OC_NotExpressionContext: ExpressionChecker._not,
     _P.OC_ComparisonExpressionContext: ExpressionChecker._comparison,
+    _P.OC_InExpressionContext: ExpressionChecker._in,
     _P.OC_AddOrSubtractExpressionContext: ExpressionChecker._add_or_subtract,
     _P.OC_MultiplyDivideModuloExpressionContext: ExpressionChecker._multiply,
     _P.OC_PowerOfExpressionContext: ExpressionChecker._power,

@@ -630,6 +630,13 @@ class TestScenarioInputs:
         assert labels == {"Person", "A", "B"}
         assert types == {"T", "U", "V", "W"}
 
+    def test_labels_named_only_in_label_predicates(self):
+        labels, types = runner._extract_labels_and_types(
+            "MATCH (n)-[r:T]-(m) WHERE m:NonExistent RETURN m:X:Y"
+        )
+        assert labels == {"NonExistent", "X", "Y"}
+        assert types == {"T"}
+
     def test_every_scenario_mapping_stores_multiple_labels(self):
         """SET n:L writes a labels array even when no pattern in the scenario names a label."""
         from tests.tck.gherkin import Scenario, Step
