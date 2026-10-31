@@ -430,7 +430,9 @@ def _execute_create_part(
                 doc["type"] = t["labels"][0]
             if len(t["labels"]) > 1:
                 doc["labels"] = t["labels"]
-            doc.update(t["props"])
+            doc.update(
+                {k: v for k, v in t["props"].items() if v is not None}
+            )  # Cypher stores no null property
 
             for k, v in list(doc.items()):
                 if isinstance(v, str) and " + " in v:
@@ -476,7 +478,7 @@ def _execute_create_part(
             edge_doc: dict[str, Any] = {"_from": from_id, "_to": to_id}
             if t["type"]:
                 edge_doc["type"] = t["type"]
-            edge_doc.update(t["props"])
+            edge_doc.update({k: v for k, v in t["props"].items() if v is not None})
             try:
                 edge_coll.insert(edge_doc)
             except Exception as e:
