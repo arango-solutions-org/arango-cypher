@@ -446,7 +446,7 @@ class TestForeachWrites:
 
     def test_foreach_detach_delete_fails_closed(self, naked):
         with pytest.raises(CoreError) as exc:
-            translate("FOREACH (x IN [1] | DETACH DELETE x)", mapping=naked)
+            translate("MATCH (p:User) FOREACH (x IN [p] | DETACH DELETE x)", mapping=naked)
         assert "DETACH" in str(exc.value)
 
     def test_foreach_delete_multi_collection_fails_closed(self, pg):

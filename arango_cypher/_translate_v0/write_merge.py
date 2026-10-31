@@ -330,6 +330,24 @@ def _extract_merge_actions(
     return on_create_fields, on_match_fields
 
 
+def _refuse_unmergeable_relationships(chains: list, bind_vars: dict[str, Any]) -> None:
+    """Refuse a relationship no MERGE can write: variable-length, or with a null property.
+
+    openCypher rejects both (CreatingVarLength at compile time,
+    MergeReadOwnWrites at run time); the UPSERT ignored the range and searched
+    for the null.
+    """
+    for chain in chains:
+        detail = chain.oC_RelationshipPattern().oC_RelationshipDetail()
+        if detail is None:
+            continue
+        if detail.oC_RangeLiteral() is not None:
+            raise CoreError("MERGE cannot merge a variable-length relationship", code="UNSUPPORTED")
+        props = _compile_create_props(detail.oC_Properties(), dict(bind_vars))
+        if any(v.strip() == "null" for _, v in props):
+            raise CoreError("MERGE cannot match a null property value", code="UNSUPPORTED")
+
+
 def _translate_merge_relationship(
     spq: CypherParser.OC_SinglePartQueryContext,
     *,
@@ -344,6 +362,7 @@ def _translate_merge_relationship(
     With an endpoint no earlier clause binds, the whole pattern is merged
     instead (:mod:`merge_patterns`), or refused where that is not covered.
     """
+    _refuse_unmergeable_relationships(chains, bind_vars)
     unbound = unbound_endpoints(merge_ctx, outer_bound_names(merge_ctx))
     refuse_unbound_endpoints(
         merge_ctx,
@@ -725,6 +744,7 @@ def _build_merge_rel_docs(
     target_node = chain.oC_NodePattern()
     if rel_pat is None or target_node is None:
         raise CoreError("Invalid relationship MERGE pattern", code="UNSUPPORTED")
+    _refuse_unmergeable_relationships([chain], bind_vars)
 
     start_var, _ = _extract_node_var_and_labels(node, default_var="a")
     end_var, _ = _extract_node_var_and_labels(target_node, default_var="b")

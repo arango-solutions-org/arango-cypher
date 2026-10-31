@@ -218,3 +218,24 @@ def test_set_after_two_matches_writes_in_the_inner_loop() -> None:
 def test_nullable_vars_follows_optional_bindings_and_aliases() -> None:
     lines = ["FOR n IN c", "  LET r = _opt_row.r", "  LET m = _opt_row2.m", "  LET x = r", "  LET y = n"]
     assert nullable_vars(lines) == {"r", "m", "x"}
+
+
+def test_a_null_safe_write_with_nothing_after_it_is_the_last_statement() -> None:
+    """AQL ends a query with RETURN or a write, not a LET (it was ERR 1501)."""
+    aql = _aql("MATCH (n:User) OPTIONAL MATCH (n)-[r:FOLLOWS]->() SET r.w = 1")
+    assert aql.splitlines()[-1].strip().startswith("FOR _w IN (r == null ? [] : [r]) UPDATE _w")
+
+
+@pytest.mark.parametrize(
+    ("cypher", "match"),
+    [
+        ("MATCH (a:User), (b:User) MERGE (a)-[:FOLLOWS*2]->(b)", "variable-length"),
+        ("MATCH (a:User), (b:User) MERGE (a)-[:FOLLOWS {w: null}]->(b)", "null property"),
+        ("MATCH (a:User) DELETE 1 + 1", "InvalidArgumentType"),
+    ],
+)
+def test_writes_no_statement_can_run_are_refused(cypher: str, match: str) -> None:
+    """A plan step exposed these: the range was dropped, the null searched for,
+    and a DELETE of a number failed only on rows that existed."""
+    with pytest.raises(CoreError, match=match):
+        _aql(cypher)

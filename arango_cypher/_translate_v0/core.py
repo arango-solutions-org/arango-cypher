@@ -98,6 +98,7 @@ from .naming import (
 from .pattern_reversal import from_bound_end
 from .percentiles import parse_percentile, percentile_value
 from .pipeline_writes import append_midquery_writes, refuse_after_write, split_writes
+from .plan_steps import translate_step
 from .scopes import is_referenced, outer_bound_names
 from .semantic_check import check_semantics
 from .shortest_path import (
@@ -116,6 +117,7 @@ from .sort_keys import (
     read_grouping_keys,
 )
 from .state import (
+    StepInput,
     TranslateOptions,
     _active_case_insensitive_inline,
     _active_path_vars,
@@ -203,6 +205,8 @@ def translate_v0(
     temporal_token = _temporal_vars.set({})
     const_token = _const_env.set(MappingProxyType({}))
     sort_types_token = SORT_VALUE_TYPES.set({})
+    step = opts.step_input
+    rows_token = _object_rows.set(True) if step is not None and step.object_rows else None
 
     try:
         with temporal_strings.translation_scope(opts.temporal_strings), deep_recursion():
@@ -210,6 +214,7 @@ def translate_v0(
                 cypher,
                 mapping=mapping,
                 params=params,
+                step=step,
             )
         _refuse_overwritten_params(params, result.bind_vars)
         # The variable-length guard reads one edge collection per traversal,
@@ -229,6 +234,8 @@ def translate_v0(
         )
         return result
     finally:
+        if rows_token is not None:
+            _object_rows.reset(rows_token)
         SORT_VALUE_TYPES.reset(sort_types_token)
         _active_user_vars.reset(user_vars_token)
         _active_user_params.reset(user_params_token)
@@ -247,6 +254,7 @@ def _translate_v0_inner(
     *,
     mapping: MappingBundle,
     params: dict[str, Any] | None = None,
+    step: StepInput | None = None,
 ) -> AqlQuery:
     bind_vars: dict[str, Any] = dict(params or {})
     resolver = MappingResolver(mapping)
@@ -254,7 +262,10 @@ def _translate_v0_inner(
     pr = parse_cypher(cypher)
     tree = pr.tree
     _reject_unsafe_escaped_names(tree)
-    check_semantics(tree)
+    step_imports = (
+        {i.name: i.kind for i in step.imports} if step is not None and step.rows_param is not None else None
+    )
+    check_semantics(tree, imports=step_imports)
     _quote_aql_reserved_names(tree)
     refuse_shortest_path_in_writes(tree)
     refuse_unsupported_subquery_calls(tree)
@@ -278,6 +289,8 @@ def _translate_v0_inner(
         )
 
     single_query = regular.oC_SingleQuery()
+    if step is not None and step.rows_param is not None:
+        return translate_step(single_query, step, resolver=resolver, bind_vars=bind_vars)
     return _translate_single_query(single_query, resolver=resolver, bind_vars=bind_vars)
 
 
@@ -1706,6 +1719,7 @@ def _translate_computational_multi_part(
     resolver: MappingResolver,
     imports: dict[str, str] | None = None,
     outer_names: frozenset[str] = frozenset(),
+    prefix_lines: list[str] | None = None,
 ) -> AqlQuery:
     """Translate a multi-part query that has **no MATCH and no writes** — a pure
     computational pipeline over literals: leading ``WITH`` (constant projections)
@@ -1718,10 +1732,10 @@ def _translate_computational_multi_part(
         UNWIND range(1, 2) AS row WITH collect(row) AS rows UNWIND rows AS x RETURN x
         WITH {a: {b: 1}} AS m RETURN m.a.b
 
-    A ``CALL { … }`` stage compiles in place, and *imports* / *outer_names*
-    are as for :func:`_translate_multi_part_query`.
+    A ``CALL { … }`` stage compiles in place, and *imports* / *outer_names* /
+    *prefix_lines* are as for :func:`_translate_multi_part_query`.
     """
-    lines: list[str] = []
+    lines: list[str] = list(prefix_lines or [])
     var_env: dict[str, str] = dict(imports or {})
     forbidden: set[str] = set(outer_names) | set(var_env.values())
 
@@ -1937,6 +1951,7 @@ def _translate_multi_part_query(
     bind_vars: dict[str, Any],
     imports: dict[str, str] | None = None,
     outer_names: frozenset[str] = frozenset(),
+    prefix_lines: list[str] | None = None,
 ) -> AqlQuery:
     """
     Minimal MultiPartQuery support for v0.1 corpus:
@@ -1945,7 +1960,8 @@ def _translate_multi_part_query(
     *imports* is set for the body of a ``CALL { WITH a, b … }`` subquery: the
     imported Cypher variables and the outer AQL names they are bound to. The
     importing ``WITH`` is then skipped, and *outer_names* (every AQL name in
-    scope outside) are never declared again.
+    scope outside) are never declared again. *prefix_lines* bind the imports
+    first, for a plan step reading the previous step's rows (plan_steps.py).
     """
     with_ctxs = mpq.oC_With() or []
     if not with_ctxs:
@@ -1963,9 +1979,20 @@ def _translate_multi_part_query(
     _has_updating = bool(mpq.oC_UpdatingClause()) or (_tail is not None and bool(_tail.oC_UpdatingClause()))
     if not _has_match and not _has_updating:
         return _translate_computational_multi_part(
-            mpq, bind_vars=bind_vars, resolver=resolver, imports=imports, outer_names=outer_names
+            mpq,
+            bind_vars=bind_vars,
+            resolver=resolver,
+            imports=imports,
+            outer_names=outer_names,
+            prefix_lines=prefix_lines,
         )
     if is_create_pipeline(mpq):
+        if prefix_lines is not None:
+            # Its stages compile from scratch and would not read the step's rows.
+            raise CoreError(
+                "A CREATE before a WITH in a plan step that reads earlier rows is not supported",
+                code="NOT_IMPLEMENTED",
+            )
         return translate_create_pipeline(mpq, resolver=resolver, bind_vars=bind_vars)
     # SET / REMOVE / DELETE before a WITH write mid-pipeline (pipeline_writes).
     split_writes(mpq.oC_UpdatingClause() or [])
@@ -1978,7 +2005,7 @@ def _translate_multi_part_query(
     # WITH produced (``WITH p LIMIT 1 MATCH (p)--(f)`` limits *before* the
     # traversal), so it must be compiled at its own position, never hoisted
     # above the WITH stages.
-    lines: list[str] = []
+    lines: list[str] = list(prefix_lines or [])
     forbidden_vars: set[str] = set(outer_names) | set((imports or {}).values())
     var_env: dict[str, str] = dict(imports or {})
     seen_match = imports is not None

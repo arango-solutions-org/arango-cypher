@@ -46,9 +46,13 @@ from .semantic_aggregation import check_aggregation, contains_aggregate
 from .semantic_errors import semantic_error
 from .semantic_expr import ExpressionChecker, Scope, bare_variable, sole_operand, variable_name
 from .semantic_types import (
+    BOOL,
+    FLOAT,
+    INT,
     LIST,
     NODE,
     REL,
+    STRING,
     T_ANY,
     T_NODE,
     T_PATH,
@@ -65,16 +69,30 @@ _P = CypherParser
 #: does not show (``YIELD *``, a subquery's ``RETURN *``).
 _OPEN = "*"
 
+#: Static types DELETE refuses at compile time (Neo4j's InvalidArgumentType).
+_NOT_DELETABLE = frozenset({INT, FLOAT, STRING, BOOL})
+
 _CLAUSES = (_P.OC_ReadingClauseContext, _P.OC_UpdatingClauseContext, _P.OC_WithContext, _P.OC_ReturnContext)
 
 
-def check_semantics(tree: CypherParser.OC_CypherContext) -> None:
-    """Raise :class:`CypherSemanticError` if Neo4j would reject *tree* as invalid."""
+#: The type of a plan step's import, by its kind (``state.StepImport``).
+_IMPORT_TYPES = {"node": T_NODE, "relationship": T_REL, "path": T_PATH}
+
+
+def check_semantics(tree: CypherParser.OC_CypherContext, *, imports: dict[str, str] | None = None) -> None:
+    """Raise :class:`CypherSemanticError` if Neo4j would reject *tree* as invalid.
+
+    *imports* (name -> kind) are the variables a plan step reads from the
+    previous step's rows; its leading ``WITH`` projects them.
+    """
     regular = tree.oC_Statement().oC_Query().oC_RegularQuery()
     if regular is None:  # a standalone CALL: nothing to scope
         return
+    scope: Scope | None = None
+    if imports is not None:
+        scope = {name: _IMPORT_TYPES.get(kind, T_ANY) for name, kind in imports.items()}
     with deep_recursion():
-        _QueryChecker().regular_query(regular, imports=None)
+        _QueryChecker().regular_query(regular, imports=scope)
 
 
 class _Columns:
@@ -165,7 +183,14 @@ class _QueryChecker:
                 self.expr.visit(action.oC_Set(), scope)
         elif isinstance(inner, _P.OC_ForeachContext):
             self.foreach(inner, scope)
-        else:  # SET, DELETE, REMOVE: expressions only
+        elif isinstance(inner, _P.OC_DeleteContext):
+            for expr in inner.oC_Expression():
+                if self.expr.visit(expr, scope).kind in _NOT_DELETABLE:
+                    raise semantic_error(
+                        "InvalidArgumentType",
+                        f"DELETE of {expr.getText()}: only a node, relationship or path",
+                    )
+        else:  # SET, REMOVE: expressions only
             self.expr.visit(inner, scope)
 
     def unwind(self, ctx: CypherParser.OC_UnwindContext, scope: Scope) -> None:

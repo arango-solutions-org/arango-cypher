@@ -149,6 +149,9 @@ _FOR_TRAVERSAL_RE = re.compile(
 
 _LET_ALIAS_RE = re.compile(r"^\s*LET\s+(\w+)\s+=\s+(\w+)\s*$")
 
+#: ``LET a = DOCUMENT(@@coll, _row.a._key)``: a plan step's imported entity (plan_steps.py).
+_LET_DOCUMENT_RE = re.compile(r"^\s*LET\s+(\w+)\s+=\s+DOCUMENT\(@@(\w+),")
+
 
 def _infer_var_collections_from_pipeline(lines: list[str]) -> dict[str, str]:
     """Map AQL document variables to their collection bind keys.
@@ -168,6 +171,10 @@ def _infer_var_collections_from_pipeline(lines: list[str]) -> dict[str, str]:
             # Vertex collection is not always a @@ bind on this line (LPG often
             # filters with IS_SAME_COLLECTION).  The edge variable is.
             out[m.group(2)] = f"@{m.group(3)}"
+            continue
+        m = _LET_DOCUMENT_RE.match(line)
+        if m is not None:
+            out[m.group(1)] = f"@{m.group(2)}"
             continue
         m = _LET_ALIAS_RE.match(line)
         if m is not None and m.group(2) in out:
@@ -193,7 +200,7 @@ def _append_multipart_mutate_tail(
     document projections (``WITH p AS x``) stay bound to the source collection.
     """
     from .pipeline_deletes import needs_pipeline_delete, translate_pipeline_delete
-    from .pipeline_writes import emit_pipeline_writes
+    from .pipeline_writes import emit_pipeline_writes, end_on_write
 
     if delete_clauses and not (set_clauses or remove_clauses) and needs_pipeline_delete(delete_clauses):
         # DELETE of a list element, a map value, …: read all rows, then remove.
@@ -218,6 +225,8 @@ def _append_multipart_mutate_tail(
             bind_vars=bind_vars,
             var_env=var_env,
         )
+    else:
+        end_on_write(lines)
 
     return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
 

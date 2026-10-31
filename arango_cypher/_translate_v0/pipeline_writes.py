@@ -32,6 +32,8 @@ from .property_writes import keep_fields_for
 
 #: ``LET r = _opt_row.r``: a variable an OPTIONAL MATCH binds (null when it did not match).
 _OPTIONAL_BINDING = re.compile(r"^\s*LET (\w+) = _opt_row\w*\.\w+\s*$")
+#: ``LET a = DOCUMENT(@@c, _row.a._key)``: a plan step's import (null in a null row).
+_STEP_IMPORT = re.compile(r"^\s*LET (\w+) = DOCUMENT\(@@\w+, _row\.")
 #: ``LET x = r``: a WITH alias, null when its source is.
 _COPY = re.compile(r"^\s*LET (\w+) = (\w+)\s*$")
 
@@ -40,7 +42,7 @@ def nullable_vars(lines: list[str]) -> set[str]:
     """The AQL variables of the pipeline *lines* that an OPTIONAL MATCH may leave null."""
     out: set[str] = set()
     for line in lines:
-        m = _OPTIONAL_BINDING.match(line)
+        m = _OPTIONAL_BINDING.match(line) or _STEP_IMPORT.match(line)
         if m is not None:
             out.add(m.group(1))
             continue
@@ -48,6 +50,22 @@ def nullable_vars(lines: list[str]) -> set[str]:
         if m is not None and m.group(2) in out:
             out.add(m.group(1))
     return out
+
+
+#: ``LET _set_n = (FOR _w IN … UPDATE …)``: a null-guarded write (:func:`emit_pipeline_writes`).
+_GUARDED_WRITE = re.compile(r"^(\s*)LET \w+ = \((FOR _w IN .*)\)$")
+
+
+def end_on_write(lines: list[str]) -> None:
+    """Make a query that ends on a null-guarded write end on the write itself.
+
+    AQL ends a query with RETURN or a write, not a LET: with nothing after it,
+    the last ``LET _set_n = (FOR _w IN … UPDATE …)`` becomes ``FOR _w IN …
+    UPDATE …`` — the same writes, as the last statement.
+    """
+    m = _GUARDED_WRITE.match(lines[-1]) if lines else None
+    if m is not None:
+        lines[-1] = m.group(1) + m.group(2)
 
 
 def _unless_null(var: str) -> str:
