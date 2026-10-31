@@ -29,7 +29,9 @@ def _aql(cypher: str, params: dict | None = None) -> str:
 def test_a_delete_of_a_list_element_reads_every_row_before_removing() -> None:
     aql = _aql("MATCH (:User)-[:FOLLOWS]->(n:User) WITH collect(n) AS fs DETACH DELETE fs[$i]", {"i": 1})
     assert aql.index("LET _matched = (") < aql.index("REMOVE")
-    assert "_targets: [(fs)[@i]]" in aql
+    # fs[$i] with types the query does not show: the subscript checks them
+    # at run time (subscripts.py) and reads fs[@i].
+    assert "_targets: [(fs == null OR @i == null ? null : IS_ARRAY(fs)" in aql and "? fs[@i] :" in aql
     assert "LET _detach0" in aql  # DETACH: the edges touching the deleted nodes go too
     assert aql.count("REMOVE PARSE_IDENTIFIER") == len(["follows", "docs", "persons", "places", "users"])
 
