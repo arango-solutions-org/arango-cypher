@@ -668,7 +668,7 @@ translatable	clauses/remove/Remove1/[2] Remove multiple node properties
 translatable	clauses/remove/Remove1/[3] Remove a single relationship property
 translatable	clauses/remove/Remove1/[4] Remove multiple relationship properties
 translatable	clauses/remove/Remove1/[5] Ignore null when removing property from a node
-translate_fail	clauses/remove/Remove1/[6] Ignore null when removing property from a relationship
+translatable	clauses/remove/Remove1/[6] Ignore null when removing property from a relationship
 translatable	clauses/remove/Remove1/[7] Remove a missing node property
 translatable	clauses/remove/Remove2/[1] Remove a single label from a node with a single label
 translatable	clauses/remove/Remove2/[2] Remove a single label from a node with two labels
