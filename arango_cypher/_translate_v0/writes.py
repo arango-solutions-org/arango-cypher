@@ -20,6 +20,7 @@ from .columns import written_column
 from .label_tests import label_test, label_write, label_write_entries, shared_label_fields
 from .label_tests import labels_field as entity_labels_field
 from .literals import _aql_string_literal
+from .merge_docs import MapAction, insert_document, update_clause, upsert_options
 from .naming import _aql_collection_ref, _pick_bind_key, _pick_fresh_var, _strip_label_backticks
 from .property_writes import PropertyOp, PropertyWrites, StoredWrite, keep_fields_for
 from .scopes import outer_bound_names
@@ -194,8 +195,14 @@ def _append_multipart_mutate_tail(
     targets are recovered from the already-built MATCH/WITH AQL so aliased
     document projections (``WITH p AS x``) stay bound to the source collection.
     """
+    from .pipeline_deletes import needs_pipeline_delete, translate_pipeline_delete
     from .pipeline_writes import emit_pipeline_writes
 
+    if delete_clauses and not (set_clauses or remove_clauses) and needs_pipeline_delete(delete_clauses):
+        # DELETE of a list element, a map value, …: read all rows, then remove.
+        return translate_pipeline_delete(
+            delete_clauses, tail=tail, lines=lines, var_env=var_env, bind_vars=bind_vars, resolver=resolver
+        )
     emit_pipeline_writes(
         set_clauses=set_clauses,
         delete_clauses=delete_clauses,
@@ -226,6 +233,10 @@ def _core_helper(name: str):
 
 def _compile_expression(*args, **kwargs):
     return _core_helper("_compile_expression")(*args, **kwargs)
+
+
+def _compile_cypher_fragment(*args, **kwargs):
+    return _core_helper("_compile_cypher_fragment")(*args, **kwargs)
 
 
 def _compile_where(*args, **kwargs):
@@ -1544,6 +1555,8 @@ def _extract_merge_actions(
     merge_ctx: CypherParser.OC_MergeContext,
     bind_vars: dict[str, Any],
     trailing_sets: list[CypherParser.OC_SetContext] | None = None,
+    *,
+    map_actions: bool = False,
 ) -> tuple[list[str], list[str]]:
     """Extract ON CREATE SET / ON MATCH SET fields from a MERGE clause.
 
@@ -1628,10 +1641,19 @@ def _extract_merge_actions(
                     code="UNSUPPORTED",
                 )
             if si.oC_PropertyExpression() is None:
-                # ``SET r = map`` / ``SET r += map`` would otherwise be dropped.
-                raise CoreError(
-                    f"MERGE ... SET of a whole map ({si.getText()}) is not supported", code="NOT_IMPLEMENTED"
-                )
+                whole = si.oC_Variable()
+                target = _strip_label_backticks(whole.getText().strip()) if whole is not None else None
+                if not map_actions or target is None or writable is None or target not in writable:
+                    # ``SET r = map`` / ``SET r += map`` would otherwise be dropped.
+                    raise CoreError(
+                        f"MERGE ... SET of a whole map ({si.getText()}) is not supported here",
+                        code="NOT_IMPLEMENTED",
+                    )
+                # A node's properties, or the map itself (merge_docs).
+                value = _compile_cypher_fragment(f"properties({si.oC_Expression().getText()})", bind_vars)
+                action = MapAction(value, replaces=not any(c.getText() == "+=" for c in si.getChildren()))
+                (on_create_fields if is_on_create else on_match_fields).append(action)
+                continue
             prop_expr = si.oC_PropertyExpression()
             if prop_expr is not None:
                 lookups = prop_expr.oC_PropertyLookup() or []
@@ -1727,25 +1749,20 @@ def _translate_merge_relationship(
     for k, v in rel_props:
         insert_fields.append(f"{k}: {v}")
 
-    on_create_fields, on_match_fields = _extract_merge_actions(merge_ctx, bind_vars)
+    on_create_fields, on_match_fields = _extract_merge_actions(merge_ctx, bind_vars, map_actions=True)
 
     search_doc = "{" + ", ".join(search_fields) + "}"
-
-    if on_create_fields:
-        all_insert = list(insert_fields) + on_create_fields
-        insert_doc = "{" + ", ".join(all_insert) + "}"
-    else:
-        insert_doc = "{" + ", ".join(insert_fields) + "}"
-
-    update_doc = "{" + ", ".join(on_match_fields) + "}" if on_match_fields else "{}"
+    # What a whole-map ``SET r = …`` keeps: the edge's endpoints and type.
+    keep = ["_from", "_to", *([r_map.get("typeField", "type")] if r_style == "GENERIC_WITH_TYPE" else [])]
+    insert_doc = insert_document(insert_fields, on_create_fields, keep)
 
     lines: list[str] = []
     _compile_merge_reading_clauses(spq, resolver=resolver, bind_vars=bind_vars, lines=lines)
 
     lines.append(f"UPSERT {search_doc}")
     lines.append(f"INSERT {insert_doc}")
-    lines.append(f"UPDATE {update_doc}")
-    lines.append(f"IN {edge_coll_ref}")
+    lines.append(update_clause(on_match_fields, keep))
+    lines.append(f"IN {edge_coll_ref}{upsert_options(on_match_fields)}")
 
     ret = spq.oC_Return()
     if ret is not None:

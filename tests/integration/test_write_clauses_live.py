@@ -157,3 +157,34 @@ def test_set_after_merge_writes_on_match_and_on_create(db: Any) -> None:
         db.aql.execute("FOR u IN users FILTER u.name == 'c' RETURN UNSET(u, '_id', '_key', '_rev')")
     )
     assert created == [{"name": "c", "seen": True}]
+
+
+def _edge(db: Any, key: str) -> dict[str, Any]:
+    return {k: v for k, v in db.collection("follows").get(key).items() if k not in ("_id", "_key", "_rev")}
+
+
+def test_on_match_set_a_whole_node_replaces_the_relationship_properties(db: Any) -> None:
+    _run(db, "MATCH (a:User {name: 'a'}), (b:User {name: 'b'}) MERGE (a)-[r:FOLLOWS]->(b) ON MATCH SET r = b")
+    assert _edge(db, "e") == {"_from": "users/a", "_to": "users/b", "name": "b", "x": 1}
+
+
+def test_on_match_merging_a_map_with_a_null_removes_that_key(db: Any) -> None:
+    _run(
+        db,
+        "MATCH (a:User {name: 'a'}), (b:User {name: 'b'}) MERGE (a)-[r:FOLLOWS]->(b) "
+        "ON MATCH SET r += {w: null, z: 3}",
+    )
+    assert _edge(db, "e") == {"_from": "users/a", "_to": "users/b", "z": 3}
+
+
+def test_on_create_set_a_map_on_a_new_relationship(db: Any) -> None:
+    _run(
+        db,
+        "MATCH (a:User {name: 'b'}), (b:User {name: 'a'}) MERGE (a)-[r:FOLLOWS]->(b) "
+        "ON CREATE SET r = {since: 2020, gone: null}",
+    )
+    created = list(db.aql.execute("FOR e IN follows FILTER e._from == 'users/b' RETURN e.since"))
+    assert created == [2020]
+    assert list(db.aql.execute("FOR e IN follows FILTER e._from == 'users/b' RETURN HAS(e, 'gone')")) == [
+        False
+    ]
