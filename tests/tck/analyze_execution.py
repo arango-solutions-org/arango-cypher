@@ -28,7 +28,7 @@ from tests.tck.analyze_coverage import (
 )
 from tests.tck.gherkin import parse_feature
 from tests.tck.procedures import scenario_params, scenario_registry
-from tests.tck.runner import _build_mapping_for_scenario, run_scenario
+from tests.tck.runner import _build_mapping_for_scenario, harness_translate_options, run_scenario
 
 _FEATURES_DIR = Path(__file__).resolve().parent / "features"
 
@@ -116,9 +116,8 @@ def analyze_execution(*, db_name: str, mapping_fixture: str, only: str | None = 
                     query,
                     mapping=_build_mapping_for_scenario(scenario, mapping_fixture),
                     params=scenario_params(scenario) or None,
-                    cypher_column_names=True,
-                    temporal_strings=True,
                     registry=scenario_registry(scenario),
+                    **harness_translate_options(),
                 )
             except CoreError as exc:
                 if expects_error:
