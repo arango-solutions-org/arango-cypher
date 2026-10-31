@@ -629,6 +629,7 @@ _TRANSPARENT_LEVELS = (
     _P.OC_PowerOfExpressionContext,
     _P.OC_MultiplyDivideModuloExpressionContext,
     _P.OC_AddOrSubtractExpressionContext,
+    _P.OC_InExpressionContext,
 )
 _BOOLEAN_LEVELS = (_P.OC_AndExpressionContext, _P.OC_XorExpressionContext, _P.OC_OrExpressionContext)
 
