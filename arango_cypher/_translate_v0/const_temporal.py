@@ -26,6 +26,7 @@ error detail, so an invalid construction compiles to ``FAIL()``.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -179,6 +180,29 @@ def _from_epoch_millis(args: list[Any]) -> Any:
 
 
 _KIND = TemporalKind()
+
+#: duration.between(x, x) and duration.inMonths/inDays/inSeconds(x, x).
+ZERO_DURATION = T.Duration(0, 0, 0, 0)
+_CLOCK_CALL = re.compile(r"^(date|localtime|time|localdatetime|datetime)(?:\.(statement|transaction))?\(\)$")
+
+
+def is_clock_difference(name: str, args: list[str]) -> bool:
+    """``duration.between(x(), x())`` (or ``inMonths`` / ``inDays`` /
+    ``inSeconds``) where both arguments read the same clock: Neo4j reads the
+    statement clock once per statement and the transaction clock once per
+    transaction, so the two values are equal and the duration is zero.
+
+    Only exactly the same reading counts: the same kind, no arguments, and the
+    same source (``x()`` is ``x.statement()``); ``realtime()`` reads the clock
+    at each call, and a time zone argument is left to the run-time path.
+    """
+    if not name.startswith("duration.") or name.removeprefix("duration.") not in _BETWEEN_UNITS or len(args) != 2:
+        return False
+    readings = [_CLOCK_CALL.match(re.sub(r"\s+", "", a).lower()) for a in args]
+    if readings[0] is None or readings[1] is None:
+        return False
+    kinds = {(m.group(1), m.group(2) or "statement") for m in readings}
+    return len(kinds) == 1
 
 
 def install() -> None:
