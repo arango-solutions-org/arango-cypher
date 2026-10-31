@@ -617,7 +617,7 @@ a pattern. A hop may name several relationship types (`[:A|B]`, also
 variable-length): on PG the traversal follows each type's edge collection, on
 LPG it tests the type field against the list, and `type(r)` is the type of
 the edge matched. `startNode(r)` / `endNode(r)` are the documents the edge's
-`_from` / `_to` name, as a MATCH binds a node, and null for null. Types mapped in different styles, or to different
+`_from` / `_to` name, as a MATCH binds a node, and null for null. ArangoDB refuses any `DOCUMENT()` after a write in the same statement (ERR 1579), so such AQL (`MERGE (a)-[r:T]-(b) RETURN startNode(r)`) is refused at translation (`refuse_document_after_write`) and runs as a multi-statement plan. Types mapped in different styles, or to different
 type-discriminated collections, are refused; so is a write to such a
 relationship and an edge scan `MATCH ()-[r:A|B]->()`. `p = shortestPath((a)-[:R*]-(b))` between
 nodes bound earlier (another pattern part or a WITH) is a breadth-first

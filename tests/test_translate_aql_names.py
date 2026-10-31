@@ -11,9 +11,11 @@ from __future__ import annotations
 import re
 
 import pytest
+from arango_query_core import CoreError
 
-from arango_cypher import translate
+from arango_cypher import translate, translate_plan
 from arango_cypher._translate_v0.naming import _rename_invalid_aql_variables
+from arango_cypher._translate_v0.write_guards import refuse_document_after_write
 from arango_cypher.parser import parse_cypher
 from tests.helpers.mapping_fixtures import mapping_bundle_for
 
@@ -62,3 +64,31 @@ def test_start_and_end_node_read_the_edge_s_endpoints() -> None:
     assert "(IS_OBJECT(r) ? DOCUMENT(r._from) : null)" in aql
     assert "(IS_OBJECT(r) ? DOCUMENT(r._to) : null)" in aql
     assert "RETURN {s: null}" in _aql("RETURN startNode(null) AS s")
+
+
+@pytest.mark.parametrize(
+    ("aql", "refused"),
+    [
+        ("FOR a IN c\n  INSERT {} INTO d\n  RETURN DOCUMENT(a._id)", True),
+        ("LET x = (FOR a IN c UPDATE a WITH {} IN c) RETURN DOCUMENT('c/1')", True),
+        ("LET a = DOCUMENT(@@c, 'k')\nINSERT {} INTO @@c", False),
+        ("RETURN 'INSERT DOCUMENT('", False),
+        ("RETURN REMOVE_VALUE([1], 1)\nRETURN DOCUMENT('c/1')", False),
+    ],
+)
+def test_document_after_a_write_is_refused(aql: str, refused: bool) -> None:
+    """ArangoDB refuses DOCUMENT() after a write in one statement (ERR 1579)."""
+    if refused:
+        with pytest.raises(CoreError, match="ERR 1579"):
+            refuse_document_after_write(aql)
+    else:
+        refuse_document_after_write(aql)
+
+
+def test_start_node_after_a_merge_reads_in_a_step_of_its_own() -> None:
+    """TCK Merge5 [11]: the MERGE's statement cannot read the endpoint back."""
+    cypher = "CREATE (a:User {id: 2}), (b:User {id: 1}) MERGE (a)-[r:FOLLOWS]-(b) RETURN startNode(r).id AS s"
+    with pytest.raises(CoreError, match="translate_plan"):
+        translate(cypher, mapping=mapping_bundle_for("lpg"))
+    plan = translate_plan(cypher, mapping=mapping_bundle_for("lpg"))
+    assert "UPSERT" not in plan.steps[-1].aql and "DOCUMENT(r._from)" in plan.steps[-1].aql

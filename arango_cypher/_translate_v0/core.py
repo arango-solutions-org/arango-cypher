@@ -168,7 +168,7 @@ from .three_valued import (
 from .unwind import _translate_standalone_unwind, unwind_source
 from .write_create import _translate_create_query
 from .write_foreach import _translate_foreach_query
-from .write_guards import refuse_dropped_writes
+from .write_guards import refuse_document_after_write, refuse_dropped_writes
 from .write_merge import _translate_merge_query
 from .write_mutate import _translate_mutating_query
 
@@ -226,6 +226,7 @@ def translate_v0(
             debug=result.debug,
             warnings=result.warnings,
         )
+        refuse_document_after_write(guarded.text)
         result = _prepend_with_collections(expand_multi_type_bindings(guarded), resolver)
         result = AqlQuery(
             text=_reindent_aql(result.text),
