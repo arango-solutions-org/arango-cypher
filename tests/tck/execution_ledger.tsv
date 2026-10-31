@@ -1770,11 +1770,11 @@ correct_rejection	expressions/list/List6/[5] Fail for `size()` on paths
 correct_rejection	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=()--()]
 correct_rejection	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=()--(a)]
 correct_rejection	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=()-[:REL*0..2]->()<-[:REL]-(:A {num: 5})]
-execution_failure	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)-->()]
-execution_failure	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)-[:REL]->(:C)<-[:REL]-(a {num: 5})]
-execution_failure	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)-[:REL]->(b)]
-execution_failure	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)-[:REL]->(b)]#2
-execution_failure	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)<--(a {})]
+correct_rejection	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)-->()]
+correct_rejection	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)-[:REL]->(:C)<-[:REL]-(a {num: 5})]
+correct_rejection	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)-[:REL]->(b)]
+correct_rejection	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)-[:REL]->(b)]#2
+correct_rejection	expressions/list/List6/[6] Fail for `size()` on pattern predicates [pattern=(a)<--(a {})]
 passed	expressions/list/List6/[7] Using size of pattern comprehension to test existence
 passed	expressions/list/List6/[8] Get node degree via size of pattern comprehension
 passed	expressions/list/List6/[9] Get node degree via size of pattern comprehension that specifies a relationship type
@@ -2039,9 +2039,9 @@ passed	expressions/pattern/Pattern1/[19] Using a negated existential pattern pre
 passed	expressions/pattern/Pattern1/[1] Matching on any single outgoing directed connection
 passed	expressions/pattern/Pattern1/[20] Using two existential pattern predicates in a conjunction
 passed	expressions/pattern/Pattern1/[21] Using two existential pattern predicates in a disjunction
-execution_failure	expressions/pattern/Pattern1/[22] Fail on using pattern in RETURN projection
-execution_failure	expressions/pattern/Pattern1/[23] Fail on using pattern in WITH projection
-execution_failure	expressions/pattern/Pattern1/[24] Fail on using pattern in right-hand side of SET
+correct_rejection	expressions/pattern/Pattern1/[22] Fail on using pattern in RETURN projection
+correct_rejection	expressions/pattern/Pattern1/[23] Fail on using pattern in WITH projection
+correct_rejection	expressions/pattern/Pattern1/[24] Fail on using pattern in right-hand side of SET
 passed	expressions/pattern/Pattern1/[2] Matching on a single undirected connection
 passed	expressions/pattern/Pattern1/[3] Matching on any single incoming directed connection
 passed	expressions/pattern/Pattern1/[4] Matching on a specific type of single outgoing directed connection
