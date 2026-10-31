@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from arango import ArangoClient
-from arango_query_core import CoreError, MappingBundle
+from arango_query_core import CoreError, ExtensionRegistry, MappingBundle
 from arango_query_core.exec import AqlExecutor
 
 from arango_cypher import translate
@@ -32,6 +32,7 @@ from tests.integration.seed import (
 
 from .gherkin import Feature, Scenario, parse_feature
 from .normalize import parse_param_value, results_contain, results_match
+from .procedures import PROCEDURE_STEP, scenario_registry
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,8 @@ _ERROR_STEP_PREFIXES = (
     "a TypeError should be raised",
     "a SemanticError should be raised",
     "a ParameterMissing error should be raised",
+    "a ParameterMissing should be raised",
+    "a ProcedureError should be raised",
     "a ArgumentError should be raised",
     "a EntityNotFound should be raised",
     "an error should be raised",
@@ -566,10 +569,21 @@ class _QueryResult:
     stage: str = ""  # translate|execute, when ``error`` is set
 
 
-def _run_query(db: Any, cypher: str, mapping: MappingBundle, params: dict[str, Any]) -> _QueryResult:
+def _run_query(
+    db: Any,
+    cypher: str,
+    mapping: MappingBundle,
+    params: dict[str, Any],
+    registry: ExtensionRegistry | None = None,
+) -> _QueryResult:
     try:
         out = translate(
-            cypher, mapping=mapping, params=params or None, cypher_column_names=True, temporal_strings=True
+            cypher,
+            mapping=mapping,
+            params=params or None,
+            cypher_column_names=True,
+            temporal_strings=True,
+            registry=registry,
         )
     except Exception as e:  # CoreError and anything else the translator raises
         return _QueryResult(query=cypher, error=e, stage="translate")
@@ -638,6 +652,7 @@ def run_scenario(
     _ensure_doc_collection(db, "vertices")
     _ensure_edge_collection(db, "edges")
     mapping = _build_mapping_for_scenario(scenario, mapping_fixture)
+    registry = scenario_registry(scenario)
     params: dict[str, Any] = {}
     last: _QueryResult | None = None
     asserted = False
@@ -668,15 +683,15 @@ def run_scenario(
             params.update(_parse_params(step.data_table))
             continue
 
-        if step.keyword in {"Given", "And"} and s.startswith("there exists a procedure"):
-            return ScenarioOutcome(status="skipped", reason="procedures not supported")
+        if step.keyword in {"Given", "And"} and s.startswith(PROCEDURE_STEP):
+            continue  # registered in ``registry`` before the steps run
 
         if step.keyword in {"When", "And"} and (
             s.startswith("executing query:") or s.startswith("executing control query:")
         ):
             if not step.doc_string:
                 return ScenarioOutcome(status="skipped", reason="missing query docstring")
-            last = _run_query(db, step.doc_string.strip(), mapping, params)
+            last = _run_query(db, step.doc_string.strip(), mapping, params, registry)
             continue
 
         if step.keyword not in {"Then", "And"}:

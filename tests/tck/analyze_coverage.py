@@ -32,6 +32,7 @@ from arango_query_core import CoreError
 from arango_cypher import translate
 from arango_cypher.parser import parse_cypher
 from tests.tck.gherkin import Scenario, Step, parse_feature
+from tests.tck.procedures import PROCEDURE_STEP, scenario_params, scenario_registry
 from tests.tck.runner import _build_mapping_for_scenario  # noqa: PLC2701
 
 _FEATURES_DIR = Path(__file__).resolve().parent / "features"
@@ -48,6 +49,7 @@ _ERROR_STEP_PREFIXES = (
     "a TypeError should be raised",
     "a SemanticError should be raised",
     "a ParameterMissing error should be raised",
+    "a ParameterMissing should be raised",
     "a ArgumentError should be raised",
     "a EntityNotFound should be raised",
     "an error should be raised",
@@ -104,8 +106,8 @@ def _step_is_supported(step: Step) -> tuple[bool, str]:
         if s.startswith(prefix):
             return True, ""
 
-    if s.startswith("there exists a procedure"):
-        return False, "procedure step"
+    if s.startswith(PROCEDURE_STEP):
+        return True, ""  # a table-backed procedure (tests/tck/procedures.py)
 
     return False, f"unsupported: {s[:60]}"
 
@@ -120,7 +122,8 @@ def _scenario_steps_supported(sc: Scenario) -> tuple[bool, str]:
 
 def _scenario_expects_error(sc: Scenario) -> bool:
     for step in sc.steps:
-        if "Error should be raised" in step.text or "error should be raised" in step.text:
+        # "a SyntaxError …", "an error …", and "a ParameterMissing should be raised …".
+        if step.text.startswith(_ERROR_STEP_PREFIXES):
             return True
     return False
 
@@ -236,7 +239,9 @@ def analyze(*, collect_scenarios: bool = False) -> dict[str, Any]:
 
             try:
                 mapping = _build_mapping_for_scenario(sc, "lpg")
-                translate(query, mapping=mapping)
+                translate(
+                    query, mapping=mapping, params=scenario_params(sc) or None, registry=scenario_registry(sc)
+                )
                 full_passable += 1
                 full_translatable += 1
                 by_category[category]["translatable"] += 1
