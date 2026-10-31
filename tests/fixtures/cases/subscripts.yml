@@ -1,0 +1,40 @@
+version: 1
+cases:
+- id: C1411
+  name: "A subscript of unknown types checks them at run time"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "WITH $expr AS list, $idx AS idx RETURN list[idx]"
+  expected:
+    aql: "LET list = @expr\nLET idx = @idx\nRETURN (list == null OR idx == null ? null : IS_ARRAY(list) ? (IS_NUMBER(idx) AND idx == FLOOR(idx) ? list[idx] : FAIL(\"TypeError (InvalidArgumentType): a list index must be an integer\")) : IS_OBJECT(list) ? (IS_STRING(idx) ? list[idx] : FAIL(\"TypeError (MapElementAccessByNonString): a map key must be a string\")) : FAIL(\"TypeError (InvalidArgumentType): only a list or a map can be indexed\"))"
+    bind_vars:
+- id: C1412
+  name: "A list read with an integer literal stays plain"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "MATCH (n:User) RETURN collect(n.name)[0] AS first"
+  expected:
+    aql: "FOR n IN @@collection\n  FILTER n[@typeField] == @typeValue\n  COLLECT _collect_group = 1 INTO _collect_rows = {first: n.name}\n  LET first = (REMOVE_VALUE(_collect_rows[*].first, null))[0]\n  RETURN first"
+    bind_vars:
+      "@collection": "vertices"
+      "typeField": "type"
+      "typeValue": "User"
+- id: C1413
+  name: "A subscript of a computed value is guarded once per value"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "MATCH (n:User) RETURN (n.tags + n.more)[n.i] AS t"
+  expected:
+    aql: "FOR n IN @@collection\n  FILTER n[@typeField] == @typeValue\n  RETURN {t: FIRST(FOR _sb0 IN [((IS_NUMBER(n.tags) AND IS_NUMBER(n.more)) ? (n.tags + n.more) : ((IS_ARRAY(n.tags) OR IS_ARRAY(n.more)) ? ((n.tags == null OR n.more == null) ? null : (IS_ARRAY(n.tags) ? (IS_ARRAY(n.more) ? APPEND(n.tags, n.more) : PUSH(n.tags, n.more)) : UNSHIFT(n.more, n.tags))) : (((IS_STRING(n.tags) AND (IS_STRING(n.more) OR IS_NUMBER(n.more))) OR (IS_NUMBER(n.tags) AND IS_STRING(n.more))) ? CONCAT(n.tags, n.more) : null)))] FOR _si0 IN [n.i] RETURN (_sb0 == null OR _si0 == null ? null : IS_ARRAY(_sb0) ? (IS_NUMBER(_si0) AND _si0 == FLOOR(_si0) ? _sb0[_si0] : FAIL(\"TypeError (InvalidArgumentType): a list index must be an integer\")) : IS_OBJECT(_sb0) ? (IS_STRING(_si0) ? _sb0[_si0] : FAIL(\"TypeError (MapElementAccessByNonString): a map key must be a string\")) : FAIL(\"TypeError (InvalidArgumentType): only a list or a map can be indexed\")))}"
+    bind_vars:
+      "@collection": "vertices"
+      "typeField": "type"
+      "typeValue": "User"
+- id: C1414
+  name: "IN binds looser than a subscript"
+  mapping_fixture: lpg
+  extensions_enabled: false
+  cypher: "WITH [[1, 2, 3]] AS list RETURN 3 IN list[0] AS r"
+  expected:
+    aql: "LET list = [[1,2,3]]\nRETURN {r: true}"
+    bind_vars:

@@ -98,6 +98,7 @@ from .naming import (
 from .pattern_reversal import from_bound_end
 from .percentiles import parse_percentile, percentile_value
 from .pipeline_writes import append_midquery_writes, refuse_after_write, split_writes
+from .reassociate import reassociate_in_subscripts
 from .scopes import is_referenced, outer_bound_names
 from .semantic_check import check_semantics
 from .shortest_path import (
@@ -137,6 +138,7 @@ from .subqueries import (
     subquery_call,
     translate_single_part_with_calls,
 )
+from .subscripts import compile_subscript
 from .supertypes import node_collection_filter, node_scan_source, union_membership_filter
 from .temporal import (
     bind_with,
@@ -253,6 +255,9 @@ def _translate_v0_inner(
     resolver = MappingResolver(mapping)
 
     pr = parse_cypher(cypher)
+    regrouped = reassociate_in_subscripts(pr.normalized, pr.tree)
+    if regrouped is not None:
+        pr = parse_cypher(regrouped)
     tree = pr.tree
     _reject_unsafe_escaped_names(tree)
     check_semantics(tree)
@@ -6488,7 +6493,9 @@ def _compile_expression(ctx: Any, bind_vars: dict[str, Any]) -> str:
             if len(exprs) != 1:
                 raise CoreError("list index expects 1 expression", code="UNSUPPORTED")
             idx = _compile_expression(exprs[0], bind_vars)
-            return f"({base})[{idx}]"
+            return compile_subscript(
+                base, idx, _static_type(ctx.oC_PropertyOrLabelsExpression()), _static_type(exprs[0])
+            )
 
         if string_ops:
             if len(string_ops) != 1:
