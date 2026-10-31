@@ -514,7 +514,7 @@ the type (`InvalidArgumentType` — `NOT`/`AND`/`OR`/`XOR`/`WHERE` over a
 non-boolean, arithmetic on strings/booleans/lists/maps/graph elements, `IN` a
 non-list, subscripting a scalar or a list with a non-integer, a property read
 off a scalar, list or path, `type()`/`length()`/`size()`/`labels()`/
-`properties()`/... of the wrong kind of value, a non-integer `SKIP`/`LIMIT`);
+`properties()`/... of the wrong kind of value, a non-integer `SKIP`/`LIMIT`, `DELETE` of a number, string or boolean);
 a negative `SKIP`/`LIMIT` literal; integer literals outside 64 bits and float
 literals outside double range; duplicate column names, an unaliased `WITH`
 expression, `UNION` branches with different columns or mixed `UNION`/`UNION
@@ -858,7 +858,7 @@ property and whole-document forms); `DELETE` / `DETACH DELETE`; `REMOVE`
 `ON CREATE` / `ON MATCH SET` of properties, and of labels where the mapping
 stores several per node; an unlabeled node MERGEs within the one collection
 unlabeled nodes live in; a RETURN after MERGE may aggregate, sort and page.
-MERGE refuses to rebind a variable bound before it, a null property value, an
+MERGE refuses to rebind a variable bound before it, a null property value (of a node or a relationship), a variable-length relationship, an
 action on an undefined variable, and a whole-map `SET n = …`/`+= …` action on
 a merged node, which it used to drop. On a single-hop relationship MERGE a
 whole-map action applies in order with the property actions (`ON CREATE SET
@@ -1043,16 +1043,58 @@ Relationship`, `CreatingVarLength`, `VariableAlreadyBound`).
 still fail closed.
 
 **The governing AQL constraint (ERR 1579).** AQL cannot read a collection after
-modifying it, nor write the same collection twice, within one query. Every
-multi-write form therefore *works when each write targets a distinct physical
-collection* and otherwise **fails closed with an actionable error** (e.g.
-same-collection multi-`MERGE`, repeated edge collections in a multi-hop `MERGE`,
-`MATCH`-prefixed multi-`MERGE`, unbound relationship endpoints after another
-clause, multi-collection
-unlabeled mutation, `DETACH DELETE` inside `FOREACH`). No query ever silently
-writes the wrong collection. Same-collection multi-write needs a
-multi-statement/transaction execution model the single-`AqlQuery` output cannot
-represent — tracked as future work.
+modifying it, nor write the same collection twice, within one query; nor can a
+REMOVE and an INSERT/UPSERT share a collection. One statement therefore holds a
+multi-write form only when each write targets a distinct physical collection.
+`translate()` refuses the others with an actionable error that names
+`translate_plan()` when a multi-statement plan can run the query (§8.3.1). No
+query ever silently writes the wrong collection.
+
+#### 8.3.1 Multi-statement plans (WP-6)
+
+`translate_plan(cypher, mapping=…, params=…, <translate()'s options>)` returns a
+`TranslationPlan`: an ordered tuple of `PlanStep`s (each a `TranspiledQuery`
+plus `input_param`, the bind parameter it receives the previous step's rows
+as, and `output_param`, the one the next step receives its rows as) and
+`result_step`, the step whose rows are the query's result (`plans.py`).
+
+- A query that fits one statement is a one-step plan whose query is exactly
+  `translate()`'s; `translate()` itself is unchanged and still returns one
+  `AqlQuery` or raises.
+- Otherwise the query is cut between clauses. openCypher applies each clause to
+  all rows before the next one, so running one step over all rows before the
+  next step starts keeps that order. Clauses are grouped greedily: a step takes
+  as many clauses as the translator compiles into one statement.
+- Every step but the last returns one object per row, keyed by the variables in
+  scope at the cut (`_plan_row` when none is, so the row count carries). The
+  next step's Cypher is `WITH <vars> …`; it compiles like a `CALL { WITH … }`
+  body over `FOR _row IN @_stepN_rows`, binding each node and relationship
+  again by key from the collection its pattern names (`DOCUMENT(@@coll,
+  _row.a._key)`), so it sees what earlier steps wrote (null if one deleted it)
+  and can write it; values pass as they are (`plan_steps.py`, `plan_scope.py`).
+- A step binds only the query parameters its AQL reads.
+- Only a query with a write and two or more clauses is cut; a read-only query,
+  a UNION, a query with CALL, and a semantically invalid query are never plans,
+  and keep `translate()`'s error.
+
+`execute_plan(db, plan)` runs a plan: one step as a plain query, several in one
+stream transaction that declares every collection a step binds for writing.
+Each step's rows feed the next step's `input_param`; a failing step (or commit)
+aborts the transaction and raises `PlanExecutionError` (its `step`, the cause
+chained). The executor (`plan_exec.run_statements`) is shaped for
+arango-query-core, which owns query execution; it lives here behind an
+`# upstream:` marker until the package ships it.
+
+`arango_cypher.execute()`, the CLI's `run`, the TCK harness and the service's
+`POST /execute` run plans. The service returns each step in `plan_steps` and
+refuses a plan for a tenant-bound session (`MULTI_STATEMENT_TENANT_BOUND`),
+since tenant Layers 4 and 5 do not certify a plan's steps yet.
+
+Not covered by plans: a node MERGE yields one existing match per row (an
+UPSERT), where openCypher yields every match (TCK Merge5 [3], Match8 [2]); a
+relationship MERGE whose endpoints no earlier clause binds after another clause
+or with ON CREATE / ON MATCH stays refused, since each row would need its own
+statement.
 
 ### 8.4 Not yet supported
 
@@ -1063,7 +1105,8 @@ and selecting from another temporal value (`date({date: d, day: 3})`);
 `allShortestPaths()` and a
 `shortestPath()` whose endpoints are not bound earlier in the query; and
 multi-part write pipelines other than CREATE (mid-pipeline `DELETE`/`SET`
-before a following `WITH`), and a write that reads what the same query wrote.
+before a following `WITH`) as one statement; a write that reads what the same
+query wrote runs as a multi-statement plan (§8.3.1).
 
 **Label hierarchies (supertypes)** — a label whose members live under other
 labels, such as LDBC's `Message` ⊇ `Post`, `Comment`. WP-35 adds them in stages

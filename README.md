@@ -135,6 +135,40 @@ print(result.aql)  # generated AQL
 print(result.bind_vars)  # bind parameters
 ```
 
+### Queries that need several AQL statements
+
+AQL cannot read a collection after writing it in the same statement, or
+write one collection twice (ERR 1579). Cypher can: each clause sees what the
+clauses before it wrote. Some queries therefore do not fit one AQL statement:
+a DELETE beside a MERGE, several MERGEs or a CREATE and a MERGE on one
+collection, or a MATCH after a write. `translate()` refuses them, and its
+error names `translate_plan()`, which cuts the query between clauses into a
+plan of statements. `execute_plan()` runs a plan in one stream transaction,
+so it commits as a whole or not at all.
+
+```python
+from arango_cypher import execute_plan, translate_plan
+
+plan = translate_plan(
+    "MATCH (p:Person {name: $name}) DELETE p MERGE (q:Person {name: $name}) RETURN q.name",
+    mapping=mapping,
+    params={"name": "Ann"},
+)
+for step in plan.steps:  # each an AQL statement with its bind parameters
+    print(step.aql, step.bind_vars, step.input_param, step.output_param)
+rows = execute_plan(db, plan)  # db: a python-arango Database; the last step's rows
+```
+
+A query that fits one statement is a one-step plan whose AQL is exactly
+`translate()`'s, and `execute_plan()` runs it as a plain query. Each later
+step receives the previous step's rows as a bind parameter (`@_step1_rows`, …)
+and reads each node and relationship again, so it sees what earlier steps
+wrote. If a step fails, the transaction is aborted and `PlanExecutionError`
+says which step. `arango_cypher.execute()`, the CLI's `run`, and the service's
+`POST /execute` run plans the same way. The service refuses a plan for a
+tenant-bound session (`MULTI_STATEMENT_TENANT_BOUND`), because the
+tenant-scope layers do not certify a plan's steps yet.
+
 ### NL → Cypher → AQL
 
 ```python
