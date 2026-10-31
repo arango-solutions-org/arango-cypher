@@ -18,7 +18,7 @@ from typing import Any
 
 from arango_query_core import CoreError
 
-from arango_cypher import translate
+from arango_cypher import translate_plan
 from arango_cypher.parser import parse_cypher
 from tests.tck.analyze_coverage import (
     _get_main_query,
@@ -112,7 +112,7 @@ def analyze_execution(*, db_name: str, mapping_fixture: str, only: str | None = 
                 counter["parseable"] += 1
 
             try:
-                translate(
+                translate_plan(
                     query,
                     mapping=_build_mapping_for_scenario(scenario, mapping_fixture),
                     params=scenario_params(scenario) or None,
