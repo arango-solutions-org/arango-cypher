@@ -13,7 +13,10 @@ the expression:
 - a function given a value of a kind it never accepts (``type()`` of a node,
   ``length()`` of a relationship, ``range()`` of a float, ``toBoolean()`` of a
   list, ...);
-- an integer literal outside 64 bits, a float literal outside double range.
+- an integer literal outside 64 bits, a float literal outside double range;
+- a pattern expression used as a value (``size((a)-->())``,
+  ``RETURN (a)-->()``): as in Neo4j 5 it may only be a predicate, and
+  ``COUNT { … }`` / ``EXISTS { … }`` / a pattern comprehension replace it.
 
 Only types the query *shows* count (see :mod:`semantic_types`); anything else
 is ``ANY`` and passes. The clause-level walk — scopes, patterns, projections —
@@ -395,8 +398,9 @@ class ExpressionChecker:
             self._hooks.check_subquery_body(ctx.oC_CountSubquery().oC_SubqueryBody(), scope)
             return T_INT
         if ctx.oC_RelationshipsPattern() is not None:
+            _require_predicate_position(ctx)
             self._hooks.check_pattern_predicate(ctx.oC_RelationshipsPattern(), scope)
-            return T_ANY
+            return T_BOOL
         if ctx.oC_ParenthesizedExpression() is not None:
             return self.visit(ctx.oC_ParenthesizedExpression().oC_Expression(), scope)
         if ctx.oC_Parameter() is not None:
@@ -621,6 +625,88 @@ def _int_constant(ctx: ParserRuleContext) -> int | None:
     """The value of an expression that is a decimal integer literal, else None."""
     text = "".join(ctx.getText().split())
     return int(text) if _SIGNED_INT.match(text) else None
+
+
+#: Levels whose single operand passes its value through unchanged.
+_TRANSPARENT_LEVELS = (
+    _P.OC_AtomContext,
+    _P.OC_ParenthesizedExpressionContext,
+    _P.OC_PowerOfExpressionContext,
+    _P.OC_MultiplyDivideModuloExpressionContext,
+    _P.OC_AddOrSubtractExpressionContext,
+)
+_BOOLEAN_LEVELS = (_P.OC_AndExpressionContext, _P.OC_XorExpressionContext, _P.OC_OrExpressionContext)
+
+
+def _require_predicate_position(atom: CypherParser.OC_AtomContext) -> None:
+    """A pattern expression (``(a)-->()``) is only valid as a predicate, as in
+    Neo4j 5: a ``WHERE`` condition, an operand of ``AND`` / ``OR`` / ``XOR`` /
+    ``NOT``, a ``CASE WHEN`` condition, or the argument of ``exists()``.
+    Anywhere else its value would be used (``size((a)-->())``,
+    ``RETURN (a)-->()``), which Neo4j 5 rejects with ``UnexpectedSyntax``."""
+    if not _in_predicate_position(atom):
+        pattern = _source(atom.oC_RelationshipsPattern())
+        raise semantic_error(
+            "UnexpectedSyntax",
+            f"the pattern expression {pattern} is used as a value; a pattern expression can only be a "
+            f"predicate (WHERE {pattern}). Use COUNT {{ {pattern} }} to count its matches, "
+            f"EXISTS {{ {pattern} }} to test for one, or a pattern comprehension "
+            f"[p = {pattern} | p] to collect them",
+        )
+
+
+def _in_predicate_position(atom: ParserRuleContext) -> bool:
+    node: ParserRuleContext = atom
+    while True:
+        parent = node.parentCtx
+        if parent is None:
+            return False
+        if isinstance(parent, _BOOLEAN_LEVELS):
+            if len([c for c in parent.getChildren() if isinstance(c, ParserRuleContext)]) > 1:
+                return True
+        elif isinstance(parent, _P.OC_NotExpressionContext):
+            if parent.NOT():
+                return True
+        elif isinstance(parent, _P.OC_ComparisonExpressionContext):
+            if parent.oC_PartialComparisonExpression():
+                return False
+        elif isinstance(parent, _P.OC_UnaryAddOrSubtractExpressionContext):
+            if any(
+                not isinstance(c, ParserRuleContext) and c.getText() in "+-" for c in parent.getChildren()
+            ):
+                return False
+        elif isinstance(parent, _P.OC_StringListNullOperatorExpressionContext):
+            if (
+                parent.oC_NullOperatorExpression()
+                or parent.oC_StringOperatorExpression()
+                or parent.oC_ListOperatorExpression()
+            ):
+                return False
+        elif isinstance(parent, _P.OC_PropertyOrLabelsExpressionContext):
+            if parent.oC_PropertyLookup() or parent.oC_NodeLabels() is not None:
+                return False
+        elif isinstance(parent, _TRANSPARENT_LEVELS):
+            if len([c for c in parent.getChildren() if isinstance(c, ParserRuleContext)]) > 1:
+                return False
+        elif isinstance(parent, _P.OC_ExpressionContext):
+            pass
+        elif isinstance(parent, _P.OC_WhereContext):
+            return True
+        elif isinstance(parent, _P.OC_CaseAlternativesContext):
+            return node is parent.oC_Expression(0)  # WHEN <predicate> THEN <value>
+        elif isinstance(parent, _P.OC_FunctionInvocationContext):
+            return parent.oC_FunctionName().getText().strip().lower() == "exists"
+        else:
+            return False
+        node = parent
+
+
+def _source(ctx: ParserRuleContext) -> str:
+    """The query text of *ctx* as written (spacing kept), for a message."""
+    start, stop = ctx.start, ctx.stop
+    if start is None or stop is None:
+        return _shown(ctx)
+    return start.getInputStream().getText(start.start, stop.stop).strip()
 
 
 def _shown(ctx: ParserRuleContext) -> str:

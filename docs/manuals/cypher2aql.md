@@ -732,7 +732,7 @@ Cypher has many built-in functions (string, numeric, date, list operations). Ara
 
 * Cypher: `WHERE n.name STARTS WITH "A"` -> AQL: `FILTER LIKE(n.name, "A%", true)` (the `true` for case-insensitive if needed).
 
-* Cypher: `RETURN size((d)--())` (number of connections of a node d). Arango doesn’t have a direct `size((d)--())`, but you can do:
+* Cypher: `RETURN COUNT { (d)--() }` (number of connections of a node d). Arango doesn’t have a direct equivalent, but you can do:
 
   ```js
   LET deg = LENGTH(FOR x IN ANY d connected_to RETURN 1)
@@ -740,6 +740,8 @@ Cypher has many built-in functions (string, numeric, date, list operations). Ara
   ```
 
   This uses a subquery to count any neighbors (ANY direction) of d. If you only want out-degree or in-degree, use OUTBOUND or INBOUND.
+
+  The older form `size((d)--())` is not valid Cypher 5: a pattern expression can only be a predicate (`WHERE (d)--()`), and the translator rejects it as a value (`UnexpectedSyntax`). Use `COUNT { (d)--() }` to count matches, `EXISTS { (d)--() }` to test for one, or a pattern comprehension `[p = (d)--() | p]` to collect them.
 
 * Cypher: `FILTER x IN list WHERE x.age > 30` within a comprehension or clause. In AQL, within a subquery: `FOR x IN list FILTER x.age > 30 RETURN x`.
 

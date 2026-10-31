@@ -55,7 +55,7 @@ class TestPostPass:
     [
         "MATCH (c:Comment {id: 1})-[:REPLY_OF*0..]->(p:Post) RETURN p.id",
         "MATCH (c:Comment {id: 1}) WITH c MATCH (c)-[:REPLY_OF*1..3]->(p:Post) RETURN p.id",
-        "MATCH (a:Person {id: 1}), (b:Person {id: 2}) RETURN a.id, b.id, (a)-[:KNOWS*1..2]-(b) AS near",
+        "MATCH (a:Person {id: 1}), (b:Person {id: 2}) WHERE (a)-[:KNOWS*1..2]-(b) RETURN a.id, b.id",
     ],
     ids=["first-match", "bound-match", "pattern-predicate"],
 )
