@@ -120,6 +120,67 @@ _AQL_RESERVED = frozenset(
 )  # fmt: skip
 
 
+#: A name AQL accepts unquoted, as a variable or after a dot: ASCII, and a
+#: letter after any leading underscores.
+_AQL_NAME_RE = re.compile(r"_*[A-Za-z][A-Za-z0-9_]*")
+#: How a variable name must start, quoted or not: ``_001``, ``1a`` and ``ä``
+#: are ERR 1501 "variable name has an invalid format" even in backticks,
+#: while ```a b``` is a valid quoted name.
+_AQL_VARIABLE_START_RE = re.compile(r"_*[A-Za-z]")
+
+
+def _variable_symbols(tree: Any) -> list[Any]:
+    """The token of every variable in *tree* (definitions and uses)."""
+    out = []
+    stack = [tree]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, CypherParser.OC_VariableContext):
+            leaf = node
+            while getattr(leaf, "children", None) and len(leaf.children) == 1:
+                leaf = leaf.children[0]
+            symbol = getattr(leaf, "symbol", None)
+            if symbol is not None and symbol.text:
+                out.append(symbol)
+            continue
+        stack.extend(getattr(node, "children", None) or [])
+    return out
+
+
+def _rename_invalid_aql_variables(tree: Any) -> None:
+    """Give every Cypher variable AQL cannot spell a valid name of its own.
+
+    Cypher allows ``_001`` (TCK Create4), ``ä`` or ```1a```; AQL refuses each
+    as a variable name, quoted or not (a name must start, after any
+    underscores, with an ASCII letter). Each is renamed in the tree, so every
+    site emits the new name: ``v`` and the name with its other characters
+    made underscores (``_001`` -> ``v_001``, ``ä`` -> ``v__``), with a numeric
+    suffix while that clashes with another variable of the query. A name that
+    starts well but holds other characters (```a b```, ``aä``) is kept and
+    backtick-quoted (:func:`_quote_aql_reserved_names`). A column named by the
+    variable as written keeps that name (``columns.source_text`` reads the
+    query text, not the token); an alias or an inferred short key takes the
+    new one.
+    """
+    symbols = _variable_symbols(tree)
+    names = {_strip_label_backticks(s.text) for s in symbols}
+    taken = set(names)
+    renamed: dict[str, str] = {}
+    for name in sorted(names):
+        if _AQL_VARIABLE_START_RE.match(name):
+            continue
+        base = "v" + ("" if name.startswith("_") else "_") + re.sub(r"[^A-Za-z0-9_]", "_", name)
+        fresh, i = base, 2
+        while fresh in taken:
+            fresh, i = f"{base}_{i}", i + 1
+        taken.add(fresh)
+        renamed[name] = fresh
+    for symbol in symbols:
+        new = renamed.get(_strip_label_backticks(symbol.text))
+        if new is not None:
+            symbol.text = new
+
+
 def _quote_aql_reserved_names(tree: Any) -> None:
     """Backtick-quote every variable and property key AQL reserves.
 
@@ -139,8 +200,11 @@ def _quote_aql_reserved_names(tree: Any) -> None:
                 leaf = leaf.children[0]
             symbol = getattr(leaf, "symbol", None)
             text = symbol.text if symbol is not None else None
-            if symbol is not None and text and not text.startswith("`") and text.lower() in _AQL_RESERVED:
-                symbol.text = f"`{text}`"
+            if symbol is not None and text and not text.startswith("`"):
+                # So is a name AQL cannot spell bare: a property key after a dot
+                # (``n._001``), a variable with a non-ASCII letter (``aä``).
+                if text.lower() in _AQL_RESERVED or not _AQL_NAME_RE.fullmatch(text):
+                    symbol.text = f"`{text}`"
             continue
         stack.extend(getattr(node, "children", None) or [])
 

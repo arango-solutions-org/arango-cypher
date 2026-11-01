@@ -204,6 +204,10 @@ class ExecuteResponse(BaseModel):
     # echoes that cap (``None`` when the request set none).
     truncated: bool = False
     row_limit: int | None = None
+    # A query that needs several AQL statements runs as a plan
+    # (arango_cypher.translate_plan): each step's aql, bind_vars and the bind
+    # parameters it reads / hands on its rows as. ``None`` for one statement.
+    plan_steps: list[dict[str, Any]] | None = None
 
 
 class ValidateRequest(BaseModel):

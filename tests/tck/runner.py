@@ -22,7 +22,7 @@ from arango import ArangoClient
 from arango_query_core import CoreError, ExtensionRegistry, MappingBundle
 from arango_query_core.exec import AqlExecutor
 
-from arango_cypher import translate
+from arango_cypher import execute_plan, translate, translate_plan
 from tests.helpers.mapping_fixtures import mapping_bundle_for
 from tests.integration.seed import (
     _ensure_doc_collection,
@@ -584,8 +584,10 @@ def _run_query(
     params: dict[str, Any],
     registry: ExtensionRegistry | None = None,
 ) -> _QueryResult:
+    """Translate and run *cypher*: as one statement, or as a multi-statement plan in
+    one transaction when it needs several (``arango_cypher.plans``)."""
     try:
-        out = translate(
+        plan = translate_plan(
             cypher,
             mapping=mapping,
             params=params or None,
@@ -596,7 +598,10 @@ def _run_query(
     except Exception as e:  # CoreError and anything else the translator raises
         return _QueryResult(query=cypher, error=e, stage="translate")
     try:
-        rows = list(AqlExecutor(db).execute(out.to_aql_query()))
+        if plan.is_single_statement:
+            rows = list(AqlExecutor(db).execute(plan.steps[0].query.to_aql_query()))
+        else:
+            rows = execute_plan(db, plan)
     except Exception as e:
         return _QueryResult(query=cypher, error=e, stage="execute")
     return _QueryResult(query=cypher, rows=rows)

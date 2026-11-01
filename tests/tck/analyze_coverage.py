@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from arango_query_core import CoreError
 
-from arango_cypher import translate
+from arango_cypher import translate_plan
 from arango_cypher.parser import parse_cypher
 from tests.tck.gherkin import Scenario, Step, parse_feature
 from tests.tck.procedures import PROCEDURE_STEP, scenario_params, scenario_registry
@@ -239,7 +239,7 @@ def analyze(*, collect_scenarios: bool = False) -> dict[str, Any]:
 
             try:
                 mapping = _build_mapping_for_scenario(sc, "lpg")
-                translate(
+                translate_plan(
                     query, mapping=mapping, params=scenario_params(sc) or None, registry=scenario_registry(sc)
                 )
                 full_passable += 1

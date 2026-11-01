@@ -29,7 +29,7 @@ from arango_query_core import AqlQuery, CoreError, MappingResolver
 
 from .._antlr.CypherParser import CypherParser
 from .naming import _aql_collection_ref, _pick_bind_key, _pick_fresh_var, _strip_label_backticks
-from .writes import create_node_doc, create_ops, create_rel_doc, projection_reshapes_rows
+from .write_create import create_node_doc, create_ops, create_rel_doc, projection_reshapes_rows
 
 
 def _core(name: str) -> Any:

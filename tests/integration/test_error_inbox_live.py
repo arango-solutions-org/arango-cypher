@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from arango_cypher.api import TranspiledQuery
+from arango_cypher.plans import PlanStep, TranslationPlan
 from arango_cypher.service.error_inbox import ErrorInbox, parse_body
 from arango_cypher.service.github_issues import GitHubIssues
 from tests.helpers.fake_github import REPO, TOKEN, FakeGitHub
@@ -75,7 +76,8 @@ def test_a_rejected_translation_is_filed_once_and_counted(
     execute = next(r.endpoint for r in svc.app.routes if getattr(r, "path", None) == "/execute")
     for n, collection in enumerate(("IAM-users", "IAM-AWS-DOCS-DEMO_Chunks")):
         broken = TranspiledQuery(aql=f"WITH {collection}\nFOR u IN users RETURN u", bind_vars={}, warnings=[])
-        monkeypatch.setitem(execute.__globals__, "translate", lambda *a, _q=broken, **k: _q)
+        plan = TranslationPlan(steps=(PlanStep(broken),), result_step=0)
+        monkeypatch.setitem(execute.__globals__, "translate_plan", lambda *a, _p=plan, **k: _p)
         token = f"inbox-live-{n}"
         svc._sessions[token] = svc._Session(token=token, db=db, client=client, platform_user=f"user{n}")
         resp = TestClient(svc.app).post(

@@ -94,6 +94,36 @@ class _HopMeta:
 
 
 @dataclass(frozen=True)
+class StepImport:
+    """A variable a plan step reads from the previous step's rows.
+
+    *kind* is ``node``, ``relationship``, ``path`` or ``value``; *collection*
+    the collection of a node or relationship, when the query says which (the
+    step reads it again there, so it sees what earlier steps wrote, and can
+    write it).
+    """
+
+    name: str
+    kind: str
+    collection: str | None = None
+
+
+@dataclass(frozen=True)
+class StepInput:
+    """What a plan step (``arango_cypher.plans``) reads: the previous step's rows.
+
+    The step's Cypher starts with ``WITH <imports>``; the rows arrive as the
+    bind parameter *rows_param*, one object per row keyed by variable. The
+    first step reads no rows (*rows_param* None). *object_rows* makes every
+    RETURN row an object, as the next step reads it.
+    """
+
+    rows_param: str | None
+    imports: tuple[StepImport, ...] = ()
+    object_rows: bool = False
+
+
+@dataclass(frozen=True)
 class TranslateOptions:
     extensions: ExtensionPolicy = ExtensionPolicy(enabled=False)
     registry: ExtensionRegistry | None = None
@@ -110,3 +140,5 @@ class TranslateOptions:
     #: at run time: accessors, arithmetic with durations, ORDER BY
     #: (``temporal_strings.py``). Off by default: such a string is then text.
     temporal_strings: bool = False
+    #: Set when compiling one step of a multi-statement plan (``plans.py``).
+    step_input: StepInput | None = None

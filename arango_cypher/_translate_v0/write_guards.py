@@ -10,6 +10,7 @@ that has a direct UPSERT form, ``MERGE (n …) SET n.p = v``.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from arango_query_core import CoreError
@@ -107,3 +108,31 @@ def _variables_read(ctx: Any) -> set[str]:
             node.getChild(i) for i in range(node.getChildCount() if hasattr(node, "getChildCount") else 0)
         )
     return found
+
+
+#: A data-modification operation in AQL text (the translator spells them in capitals).
+_MODIFICATION = re.compile(r"\b(?:INSERT|UPDATE|REPLACE|REMOVE|UPSERT)\b")
+_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
+
+
+def refuse_document_after_write(aql: str) -> None:
+    """Refuse AQL that calls ``DOCUMENT()`` after a write in the same statement.
+
+    ArangoDB refuses it while optimizing (ERR 1579, "access after
+    data-modification by function DOCUMENT"), whichever collection either
+    names: ``MERGE (a)-[r:T]-(b) RETURN startNode(r)`` compiled to such a
+    query. Refused here, the query can run as a multi-statement plan, the
+    read in a step of its own (``arango_cypher.plans``).
+    """
+    wrote = False
+    for line in aql.splitlines():
+        code = _STRING_LITERAL.sub("''", line)
+        write = _MODIFICATION.search(code)
+        after_write = code if wrote else (code[write.end() :] if write else "")
+        if "DOCUMENT(" in after_write:
+            raise CoreError(
+                "This query reads a document (DOCUMENT(), e.g. for startNode()/endNode()) after "
+                "writing in the same AQL statement, which ArangoDB refuses (ERR 1579)",
+                code="NOT_IMPLEMENTED",
+            )
+        wrote = wrote or write is not None

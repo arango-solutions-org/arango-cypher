@@ -99,9 +99,9 @@ translatable	clauses/create/Create2/[7] Create a single node and a single self l
 translatable	clauses/create/Create2/[8] Create a single node and a single self loop in separate patterns
 translatable	clauses/create/Create2/[9] Create a single node and a single self loop in separate clauses
 translatable	clauses/create/Create3/[10] WITH-UNWIND-CREATE: A bound node should be recognized after projection with WITH + UNWIND
-translate_fail	clauses/create/Create3/[11] WITH-MERGE-CREATE: A bound node should be recognized after projection with WITH + MERGE node
-translate_fail	clauses/create/Create3/[12] WITH-MERGE-CREATE: A bound node should be recognized after projection with WITH + MERGE pattern
-translate_fail	clauses/create/Create3/[13] Merge followed by multiple creates
+translatable	clauses/create/Create3/[11] WITH-MERGE-CREATE: A bound node should be recognized after projection with WITH + MERGE node
+translatable	clauses/create/Create3/[12] WITH-MERGE-CREATE: A bound node should be recognized after projection with WITH + MERGE pattern
+translatable	clauses/create/Create3/[13] Merge followed by multiple creates
 translatable	clauses/create/Create3/[1] MATCH-CREATE
 translatable	clauses/create/Create3/[2] WITH-CREATE
 translatable	clauses/create/Create3/[3] MATCH-CREATE-WITH-CREATE
@@ -149,7 +149,7 @@ translatable	clauses/delete/Delete3/[1] Detach deleting paths
 translatable	clauses/delete/Delete3/[2] Delete on null path
 translatable	clauses/delete/Delete4/[1] Undirected expand followed by delete and count
 translatable	clauses/delete/Delete4/[2] Undirected variable length expand followed by delete and count
-translate_fail	clauses/delete/Delete4/[3] Create and delete in same query
+translatable	clauses/delete/Delete4/[3] Create and delete in same query
 translatable	clauses/delete/Delete5/[1] Delete node from a list
 translatable	clauses/delete/Delete5/[2] Delete relationship from a list
 translatable	clauses/delete/Delete5/[3] Delete nodes from a map
@@ -577,7 +577,7 @@ translatable	clauses/match/Match7/[7] MATCH with OPTIONAL MATCH in longer patter
 translatable	clauses/match/Match7/[8] Longer pattern with bound nodes without matches
 translatable	clauses/match/Match7/[9] Longer pattern with bound nodes
 translatable	clauses/match/Match8/[1] Pattern independent of bound variables results in cross product
-translate_fail	clauses/match/Match8/[2] Counting rows after MATCH, MERGE, OPTIONAL MATCH
+translatable	clauses/match/Match8/[2] Counting rows after MATCH, MERGE, OPTIONAL MATCH
 translatable	clauses/match/Match8/[3] Matching and disregarding output, then matching again
 translatable	clauses/match/Match9/[1] Variable length relationship variables are lists of relationships
 translatable	clauses/match/Match9/[2] Return relationships by collecting them as a list - directed, one way
@@ -590,9 +590,9 @@ translatable	clauses/match/Match9/[8] Variable length relationship in OPTIONAL M
 translatable	clauses/match/Match9/[9] Optionally matching named paths with variable length patterns
 translatable	clauses/merge/Merge1/[10] Merge must properly handle multiple labels
 translatable	clauses/merge/Merge1/[11] Merge should be able to merge using property of bound node
-translate_fail	clauses/merge/Merge1/[12] Merge should be able to merge using property of freshly created node
+translatable	clauses/merge/Merge1/[12] Merge should be able to merge using property of freshly created node
 translatable	clauses/merge/Merge1/[13] Merge should bind a path
-translate_fail	clauses/merge/Merge1/[14] Merges should not be able to match on deleted nodes
+translatable	clauses/merge/Merge1/[14] Merges should not be able to match on deleted nodes
 correct_rejection	clauses/merge/Merge1/[15] Fail when merge a node that is already bound
 correct_rejection	clauses/merge/Merge1/[16] Fail when using parameter as node predicate in MERGE
 correct_rejection	clauses/merge/Merge1/[17] Fail on merging node with null property
@@ -602,9 +602,9 @@ translatable	clauses/merge/Merge1/[3] Merge node with label when it exists
 translatable	clauses/merge/Merge1/[4] Merge node should create when it doesn't match, properties
 translatable	clauses/merge/Merge1/[5] Merge node should create when it doesn't match, properties and label
 translatable	clauses/merge/Merge1/[6] Merge node with prop and label
-translate_fail	clauses/merge/Merge1/[7] Merge should work when finding multiple elements
-translate_fail	clauses/merge/Merge1/[8] Merge should handle argument properly
-translate_fail	clauses/merge/Merge1/[9] Merge should support updates while merging
+translatable	clauses/merge/Merge1/[7] Merge should work when finding multiple elements
+translatable	clauses/merge/Merge1/[8] Merge should handle argument properly
+translatable	clauses/merge/Merge1/[9] Merge should support updates while merging
 translatable	clauses/merge/Merge2/[1] Merge node with label add label on create
 translatable	clauses/merge/Merge2/[2] ON CREATE on created nodes
 translatable	clauses/merge/Merge2/[3] Merge node with label add property on create
@@ -618,19 +618,19 @@ translatable	clauses/merge/Merge3/[4] Merge should be able to use properties of 
 correct_rejection	clauses/merge/Merge3/[5] Fail when using undefined variable in ON MATCH
 translatable	clauses/merge/Merge4/[1] Merge should be able to set labels on match and on create
 translatable	clauses/merge/Merge4/[2] Merge should be able to use properties of bound node in ON MATCH and ON CREATE
-translate_fail	clauses/merge/Merge5/[10] Merge should bind a path
-translate_fail	clauses/merge/Merge5/[11] Use outgoing direction when unspecified
+translatable	clauses/merge/Merge5/[10] Merge should bind a path
+translatable	clauses/merge/Merge5/[11] Use outgoing direction when unspecified
 translatable	clauses/merge/Merge5/[12] Match outgoing relationship when direction unspecified
 translatable	clauses/merge/Merge5/[13] Match both incoming and outgoing relationships when direction unspecified
-translate_fail	clauses/merge/Merge5/[14] Using list properties via variable
+translatable	clauses/merge/Merge5/[14] Using list properties via variable
 translatable	clauses/merge/Merge5/[15] Matching using list property
 translatable	clauses/merge/Merge5/[16] Aliasing of existing nodes 1
 translatable	clauses/merge/Merge5/[17] Aliasing of existing nodes 2
-translate_fail	clauses/merge/Merge5/[18] Double aliasing of existing nodes 1
-translate_fail	clauses/merge/Merge5/[19] Double aliasing of existing nodes 2
+translatable	clauses/merge/Merge5/[18] Double aliasing of existing nodes 1
+translatable	clauses/merge/Merge5/[19] Double aliasing of existing nodes 2
 translatable	clauses/merge/Merge5/[1] Creating a relationship
-translate_fail	clauses/merge/Merge5/[20] Do not match on deleted entities
-translate_fail	clauses/merge/Merge5/[21] Do not match on deleted relationships
+translatable	clauses/merge/Merge5/[20] Do not match on deleted entities
+translatable	clauses/merge/Merge5/[21] Do not match on deleted relationships
 correct_rejection	clauses/merge/Merge5/[22] Fail when imposing new predicates on a variable that is already bound
 correct_rejection	clauses/merge/Merge5/[23] Fail when merging relationship without type
 correct_rejection	clauses/merge/Merge5/[24] Fail when merging relationship without type, no colon
@@ -641,12 +641,12 @@ correct_rejection	clauses/merge/Merge5/[28] Fail when using variable length rela
 correct_rejection	clauses/merge/Merge5/[29] Fail on merging relationship with null property
 translatable	clauses/merge/Merge5/[2] Matching a relationship
 translatable	clauses/merge/Merge5/[3] Matching two relationships
-translate_fail	clauses/merge/Merge5/[4] Using bound variables from other updating clause
+translatable	clauses/merge/Merge5/[4] Using bound variables from other updating clause
 translatable	clauses/merge/Merge5/[5] Filtering relationships
 translatable	clauses/merge/Merge5/[6] Creating relationship when all matches filtered out
 translatable	clauses/merge/Merge5/[7] Matching incoming relationship
 translatable	clauses/merge/Merge5/[8] Creating relationship with property
-translate_fail	clauses/merge/Merge5/[9] Creating relationship using merged nodes
+translatable	clauses/merge/Merge5/[9] Creating relationship using merged nodes
 translatable	clauses/merge/Merge6/[1] Using ON CREATE on a node
 translatable	clauses/merge/Merge6/[2] Using ON CREATE on a relationship
 translatable	clauses/merge/Merge6/[3] Updating one property with ON CREATE
@@ -660,9 +660,9 @@ translatable	clauses/merge/Merge7/[4] Copying properties from node with ON MATCH
 translatable	clauses/merge/Merge7/[5] Copying properties from literal map with ON MATCH
 translatable	clauses/merge/Merge8/[1] Using ON CREATE and ON MATCH
 translatable	clauses/merge/Merge9/[1] UNWIND with one MERGE
-translate_fail	clauses/merge/Merge9/[2] UNWIND with multiple MERGE
-translate_fail	clauses/merge/Merge9/[3] Mixing MERGE with CREATE
-translate_fail	clauses/merge/Merge9/[4] MERGE after WITH with predicate and WITH with aggregation
+translatable	clauses/merge/Merge9/[2] UNWIND with multiple MERGE
+translatable	clauses/merge/Merge9/[3] Mixing MERGE with CREATE
+translatable	clauses/merge/Merge9/[4] MERGE after WITH with predicate and WITH with aggregation
 translatable	clauses/remove/Remove1/[1] Remove a single node property
 translatable	clauses/remove/Remove1/[2] Remove multiple node properties
 translatable	clauses/remove/Remove1/[3] Remove a single relationship property
@@ -900,7 +900,7 @@ translatable	clauses/unwind/Unwind1/[2] Unwinding a range
 translatable	clauses/unwind/Unwind1/[3] Unwinding a concatenation of lists
 translatable	clauses/unwind/Unwind1/[4] Unwinding a collected unwound expression
 translatable	clauses/unwind/Unwind1/[5] Unwinding a collected expression
-translate_fail	clauses/unwind/Unwind1/[6] Creating nodes from an unwound parameter list
+translatable	clauses/unwind/Unwind1/[6] Creating nodes from an unwound parameter list
 translatable	clauses/unwind/Unwind1/[7] Double unwinding a list of lists
 translatable	clauses/unwind/Unwind1/[8] Unwinding the empty list
 translatable	clauses/unwind/Unwind1/[9] Unwinding null

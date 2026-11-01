@@ -16,6 +16,8 @@ from .extensions import (
 )
 from .nl2cypher import LLMProvider, NL2CypherResult, OpenAIProvider, nl_to_cypher
 from .parser import ParseResult, parse_cypher
+from .plan_exec import PlanExecutionError, execute_plan
+from .plans import PlanStep, TranslationPlan, translate_plan
 from .profile import PROFILE_SCHEMA_VERSION, build_cypher_profile
 from .schema_acquire import (
     SchemaChangeReport,
@@ -43,8 +45,11 @@ __all__ = [
     "OpenAIProvider",
     "ParseResult",
     "PROFILE_SCHEMA_VERSION",
+    "PlanExecutionError",
+    "PlanStep",
     "SchemaChangeReport",
     "TranslateOptions",
+    "TranslationPlan",
     "TranspiledQuery",
     "ValidationResult",
     "acquire_mapping_bundle",
@@ -52,6 +57,7 @@ __all__ = [
     "classify_schema",
     "describe_schema_change",
     "execute",
+    "execute_plan",
     "get_cypher_profile",
     "get_mapping",
     "invalidate_cache",
@@ -64,5 +70,6 @@ __all__ = [
     "register_search_extensions",
     "register_vector_extensions",
     "translate",
+    "translate_plan",
     "validate_cypher_profile",
 ]
