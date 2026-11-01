@@ -62,6 +62,18 @@ _ERROR_STEP_PREFIXES = (
 _ROW_COUNT_RE = re.compile(r"the result should have (\d+) rows?")
 
 
+#: The opt-in translate options the harness turns on (see the module docstring).
+#: ``TCK_DEFAULT_OPTIONS=1`` turns them off, to measure what a caller using
+#: translate()'s defaults gets — the conformance plan reports both figures.
+_HARNESS_OPTIONS = {"cypher_column_names": True, "temporal_strings": True}
+
+
+def harness_translate_options() -> dict[str, bool]:
+    if os.environ.get("TCK_DEFAULT_OPTIONS") == "1":
+        return {}
+    return dict(_HARNESS_OPTIONS)
+
+
 @dataclass(frozen=True)
 class ScenarioOutcome:
     status: str  # passed|skipped|failed
@@ -591,9 +603,8 @@ def _run_query(
             cypher,
             mapping=mapping,
             params=params or None,
-            cypher_column_names=True,
-            temporal_strings=True,
             registry=registry,
+            **harness_translate_options(),
         )
     except Exception as e:  # CoreError and anything else the translator raises
         return _QueryResult(query=cypher, error=e, stage="translate")

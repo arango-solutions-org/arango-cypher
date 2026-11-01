@@ -1,5 +1,7 @@
 # Cypher Support Scorecard
 
+> **Superseded figures (2026-10-31).** The execution figures below predate the TCK push. Current conformance on a live ArangoDB is **3,808 / 3,861 (98.6%)** in harness mode and **3,713 (96.2%)** with `translate()`'s default options, from the ratcheted `tests/tck/execution_ledger.tsv`; see `docs/cypher_tck_conformance_plan.md`.
+
 **Authoritative measurement:** `tests/tck/COVERAGE_REPORT.md` (generated)
 **Compatibility contract:** `docs/cypher_capability_matrix.md`
 **Machine-readable declaration:** `arango_cypher/profile.py`
