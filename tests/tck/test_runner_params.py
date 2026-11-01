@@ -22,3 +22,17 @@ def test_single_parameter() -> None:
 def test_malformed_row_is_an_error() -> None:
     with pytest.raises(ValueError, match="name | value"):
         _parse_params([["a", "1", "2"]])
+
+
+def test_harness_turns_on_the_opt_in_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.tck.runner import harness_translate_options
+
+    monkeypatch.delenv("TCK_DEFAULT_OPTIONS", raising=False)
+    assert harness_translate_options() == {"cypher_column_names": True, "temporal_strings": True}
+
+
+def test_default_options_mode_turns_them_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.tck.runner import harness_translate_options
+
+    monkeypatch.setenv("TCK_DEFAULT_OPTIONS", "1")
+    assert harness_translate_options() == {}
