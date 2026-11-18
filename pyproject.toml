@@ -87,7 +87,12 @@ analyzer = [
   # `-ves`, classical and irregular plurals and `-s` singulars:
   # `warehouses` -> `Warehouse`, was `Warehous`); the five symbols above are
   # unchanged (signatures checked on 0.17.0).
-  "arangodb-schema-analyzer>=0.14.1,<0.18.0",
+  # Ceiling <0.21.0 (2026-11-18, raised together with arango-sparql-py): 0.18
+  # adds CSI 1.1 nested-object `path` and the opt-in LABELS entity style; 0.19
+  # adds opt-in per-field redaction of values sent to an LLM; 0.20 marks a
+  # list-valued attribute `multiValued` (CSI 1.2) for readers that take it.
+  # The five symbols above are unchanged (signatures checked on 0.20.0).
+  "arangodb-schema-analyzer>=0.14.1,<0.21.0",
 ]
 service = [
   # Headless service installs (ServiceMaker / Container Manager /
