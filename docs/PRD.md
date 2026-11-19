@@ -600,7 +600,12 @@ access (`n.address.zip`). A parameter that shares its name with a bind
 variable the translation generates (`typeValue`, `@collection`, …) and would
 have its value replaced is refused (`UNSUPPORTED`) rather than silently rebound.
 A variable-length relationship on a type-discriminated (LPG) edge collection
-follows only edges of its type; `*0..` includes the zero-hop row. An open-ended
+follows only edges of its type; `*0..` includes the zero-hop row. The
+traversal is pruned at an edge of another type and also filtered by
+`p.edges[*][@typeField] ALL == @typeValue` (`ALL IN` for several types) on its
+path, which ArangoDB turns into an edge condition a vertex-centric
+`(_from, type)` index can serve; a PRUNE alone kept that index out
+(`_guard_varlength_edge_types`, WP-44). An open-ended
 range (`*`, `*2..`) is limited to 10 hops (`_MAX_VLP_DEPTH`), and the
 translation says so in a warning. `coalesce()` is AQL `NOT_NULL()`.
 A `MATCH` after `WITH` may have several comma-separated pattern parts. A

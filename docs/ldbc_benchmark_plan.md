@@ -963,8 +963,13 @@ reach `matches_oracle`. **Achieved 2026-10-29.**
     candidate friend). Edges in their own collection now use AQL's
     `SHORTEST_PATH`, which searches from both ends; the plan-shape bound is
     in `tests/integration/test_shortest_path_live.py`. LPG keeps the
-    traversal: its variable-length type guard (a PRUNE) keeps the
-    `(_from, type)` index out, which is the next step.
+    traversal (`SHORTEST_PATH` cannot filter edges).
+  - *LPG variable-length hops (2026-11).* The type guard, a PRUNE, kept
+    the `(_from, type)` index out, so a `KNOWS*1..2` traversal read every
+    edge of every person it reached. The guard now also filters the path
+    (`p.edges[*][@tf] ALL == @tv`), which the index serves; 17 LPG reads
+    change. The regression bound is
+    `tests/integration/test_varlength_lpg_index_live.py` (index entries read).
 
 ---
 

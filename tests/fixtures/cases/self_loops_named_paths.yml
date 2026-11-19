@@ -48,12 +48,22 @@ cases:
   extensions_enabled: false
   cypher: MATCH (a:User) WITH a MATCH p = (a)-[r:FOLLOWS*1..2]->(b:User) RETURN r, p
   expected:
-    aql: "WITH @@collection\nFOR a IN @@collection\n  FILTER a[@typeField] == @typeValue\n  FOR b, r, _hop_path IN 1..2 OUTBOUND a @@edgeCollection PRUNE r != null AND r[@relTypeField] != @relTypeValue\n    LET r_list = _hop_path.edges\n    FILTER IS_SAME_COLLECTION(@vCollection, b)\n    FILTER b[@vTypeField] == @vTypeValue\n    FILTER r[@relTypeField] == @relTypeValue\n    LET p = {nodes: FLATTEN([[a], SLICE(_hop_path.vertices, 1)]), edges: FLATTEN([_hop_path.edges])}\n    RETURN {r: r_list, p: p}"
+    aql: |
+      WITH @@collection
+      FOR a IN @@collection
+        FILTER a[@typeField] == @typeValue
+        FOR b, r, _hop_path IN 1..2 OUTBOUND a @@edgeCollection PRUNE r != null AND r[@relTypeField] != @relTypeValue
+          LET r_list = _hop_path.edges
+          FILTER IS_SAME_COLLECTION(@vCollection, b)
+          FILTER b[@vTypeField] == @vTypeValue
+          FILTER _hop_path.edges[*][@relTypeField] ALL == @relTypeValue FILTER r[@relTypeField] == @relTypeValue
+          LET p = {nodes: FLATTEN([[a], SLICE(_hop_path.vertices, 1)]), edges: FLATTEN([_hop_path.edges])}
+          RETURN {r: r_list, p: p}
     bind_vars:
-      '@collection': vertices
+      "@collection": vertices
       typeField: type
       typeValue: User
-      '@edgeCollection': edges
+      "@edgeCollection": edges
       vCollection: vertices
       vTypeField: type
       vTypeValue: User

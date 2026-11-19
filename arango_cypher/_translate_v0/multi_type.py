@@ -13,7 +13,8 @@ so every traversal emitter handles them unchanged:
 The emitters bind those lists as they bind single values. A last pass,
 :func:`expand_multi_type_bindings`, rewrites the text around them: a list of
 collections becomes one bind parameter per collection, and a comparison of
-the type field against a list becomes ``IN`` / ``NOT IN``. It runs after
+the type field against a list becomes ``IN`` / ``NOT IN`` (``ALL IN`` for the
+type guard's path condition). It runs after
 ``_guard_varlength_edge_types``, which therefore still sees one edge
 collection per traversal and turns the type test into a PRUNE as usual.
 """
@@ -116,4 +117,6 @@ def expand_multi_type_bindings(query: AqlQuery) -> AqlQuery:
             # list; a user parameter holding a list is left alone.
             text = re.sub(rf"(\[@\w+\]) == @{re.escape(key)}\b", rf"\1 IN @{key}", text)
             text = re.sub(rf"(\[@\w+\]) != @{re.escape(key)}\b", rf"\1 NOT IN @{key}", text)
+            # The type guard's path condition (``p.edges[*][@tf] ALL == @tv``).
+            text = re.sub(rf"(\[@\w+\]) ALL == @{re.escape(key)}\b", rf"\1 ALL IN @{key}", text)
     return AqlQuery(text=text, bind_vars=bind_vars, debug=query.debug, warnings=query.warnings)

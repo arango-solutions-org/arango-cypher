@@ -8,6 +8,8 @@ Graph8 and Unwind1 in ``tests/tck/execution_ledger.tsv``.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from arango_cypher import translate
@@ -29,9 +31,13 @@ def _aql(q: str) -> str:
 
 
 def test_unused_variable_length_name_keeps_the_plain_traversal():
-    """No path variable is added when nothing reads the relationship list."""
+    """No relationship-list path variable is added when nothing reads the list.
+
+    The LPG type guard's ``_vlp`` path is another matter: its edge condition
+    lets the ``(_from, type)`` index serve the traversal (``_guard_varlength_edge_types``).
+    """
     aql = _aql("MATCH (a:User)-[r:FOLLOWS*1..2]->(b) RETURN b")
-    assert "_vp_" not in aql and "FOR b, r IN 1..2" in aql
+    assert "_vp_" not in aql and re.search(r"FOR b, r(, _vlp)? IN 1\.\.2", aql), aql
 
 
 def test_fixed_length_star_range_is_still_a_list():

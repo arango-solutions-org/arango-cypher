@@ -8,7 +8,27 @@ cases:
   params:
     id: 1
   expected:
-    aql: "WITH @@uCollection\nLET _matched = (\nFOR u IN @@uCollection\n  FILTER u[@uTypeField] == @uTypeValue\n  FILTER (@id != null AND u.id == @id)\n  FOR comment, r IN 0..10 INBOUND u @@edgeCollection PRUNE r != null AND r[@relTypeField] != @relTypeValue OPTIONS {indexHint: {\"edges\": {\"inbound\": {\"base\": \"idx_edges_to_type\"}}}}\n    FILTER comment[@vTypeField] == @vTypeValue\n    FILTER (r == null OR r[@relTypeField] == @relTypeValue)\n    RETURN {comment: comment, _row: true}\n    )\n    LET _deleted_nodes = UNIQUE(REMOVE_VALUE(FLATTEN(_matched[*].comment._id), null))\n    LET _detach0 = (FOR _n IN _deleted_nodes FOR _x, _e IN 1..1 ANY _n @@deleteEdges RETURN _e._id)\n    LET _deleted_edges = UNIQUE(_detach0)\n    LET _removed0 = (FOR _id IN _deleted_edges FILTER PARSE_IDENTIFIER(_id).collection == @deleteEdgesName REMOVE PARSE_IDENTIFIER(_id).key IN @@deleteEdges)\n    LET _removed1 = (FOR _id IN _deleted_nodes FILTER PARSE_IDENTIFIER(_id).collection == @deleteNodesName REMOVE PARSE_IDENTIFIER(_id).key IN @@deleteNodes)\n    FOR _row IN _matched\n      LET comment = _row.comment\n      COLLECT AGGREGATE _count_rows = SUM(1)\n      LET count = NOT_NULL(_count_rows, 0)\n      RETURN count\n"
+    aql: |
+      WITH @@uCollection
+      LET _matched = (
+      FOR u IN @@uCollection
+        FILTER u[@uTypeField] == @uTypeValue
+        FILTER (@id != null AND u.id == @id)
+        FOR comment, r, _vlp IN 0..10 INBOUND u @@edgeCollection PRUNE r != null AND r[@relTypeField] != @relTypeValue OPTIONS {indexHint: {"edges": {"inbound": {"base": "idx_edges_to_type"}}}}
+          FILTER comment[@vTypeField] == @vTypeValue
+          FILTER _vlp.edges[*][@relTypeField] ALL == @relTypeValue FILTER (r == null OR r[@relTypeField] == @relTypeValue)
+          RETURN {comment: comment, _row: true}
+          )
+          LET _deleted_nodes = UNIQUE(REMOVE_VALUE(FLATTEN(_matched[*].comment._id), null))
+          LET _detach0 = (FOR _n IN _deleted_nodes FOR _x, _e IN 1..1 ANY _n @@deleteEdges RETURN _e._id)
+          LET _deleted_edges = UNIQUE(_detach0)
+          LET _removed0 = (FOR _id IN _deleted_edges FILTER PARSE_IDENTIFIER(_id).collection == @deleteEdgesName REMOVE PARSE_IDENTIFIER(_id).key IN @@deleteEdges)
+          LET _removed1 = (FOR _id IN _deleted_nodes FILTER PARSE_IDENTIFIER(_id).collection == @deleteNodesName REMOVE PARSE_IDENTIFIER(_id).key IN @@deleteNodes)
+          FOR _row IN _matched
+            LET comment = _row.comment
+            COLLECT AGGREGATE _count_rows = SUM(1)
+            LET count = NOT_NULL(_count_rows, 0)
+            RETURN count
     bind_vars:
       id: 1
       "@uCollection": nodes

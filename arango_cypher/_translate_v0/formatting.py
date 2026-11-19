@@ -131,8 +131,10 @@ def _reindent_aql(text: str) -> str:
 
 
 _VARLEN_TRAVERSAL_RE = re.compile(
-    r"FOR \w+, (?P<e>\w+)(?:, \w+)? IN (?P<min>\d+)\.\.(?P<max>\d+) (?:OUTBOUND|INBOUND|ANY) \S+ @@\w+"
+    r"FOR \w+, (?P<e>\w+)(?:, (?P<p>\w+))? IN (?P<min>\d+)\.\.(?P<max>\d+) (?:OUTBOUND|INBOUND|ANY) \S+ @@\w+"
 )
+#: The path variable the guard adds to a traversal that declares none.
+_GUARD_PATH_VAR = "_vlp"
 _NEXT_FOR_RE = re.compile(r"\bFOR ")
 
 
@@ -149,8 +151,28 @@ def _guard_varlength_edge_types(text: str) -> str:
     ``PRUNE r != null AND r[@tf] != @tv``, so expansion stops at the first
     edge of another type (the path that ends in it is still removed by the
     last-edge filter), and for a zero minimum lets ``r == null`` through.
+
+    A PRUNE keeps ArangoDB from using a vertex-centric ``(_from, type)``
+    index: every edge of every vertex reached is read, then pruned (LDBC IC1
+    on LPG read about 25 times the edges it followed). So the guard also adds
+    ``FILTER p.edges[*][@tf] ALL == @tv`` on the traversal's path (declaring
+    one, ``_vlp``, if the traversal has none), which the optimizer turns into
+    an edge condition the index serves (WP-44). The PRUNE stays, so the rows
+    do not depend on that optimisation. A zero-length path has no edges and
+    passes.
     """
     edits: list[tuple[int, int, str]] = []  # (start, end, replacement) on the original text
+    used = set(re.findall(r"\w+", text))
+
+    def fresh_path_var() -> str:
+        n = 1
+        name = _GUARD_PATH_VAR
+        while name in used:
+            n += 1
+            name = f"{_GUARD_PATH_VAR}{n}"
+        used.add(name)
+        return name
+
     for m in _VARLEN_TRAVERSAL_RE.finditer(text):
         if (m.group("min"), m.group("max")) == ("1", "1"):
             continue
@@ -161,7 +183,12 @@ def _guard_varlength_edge_types(text: str) -> str:
         if f is None:
             continue  # a dedicated edge collection: every edge has the type
         tf, tv = f.group(1), f.group(2)
+        path = m.group("p")
+        if path is None:
+            path = fresh_path_var()
+            edits.append((m.end("e"), m.end("e"), f", {path}"))
         edits.append((m.end(), m.end(), f" PRUNE {edge} != null AND {edge}[@{tf}] != @{tv}"))
+        edits.append((f.start(), f.start(), f"FILTER {path}.edges[*][@{tf}] ALL == @{tv} "))
         if m.group("min") == "0":
             edits.append((f.start(), f.end(), f"FILTER ({edge} == null OR {edge}[@{tf}] == @{tv})"))
     for start, end, replacement in sorted(edits, reverse=True):
