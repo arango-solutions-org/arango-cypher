@@ -4994,7 +4994,9 @@ def _extra_label_filters(
     return out
 
 
-def _multi_label_filter(var: str, emap: dict[str, Any], bind_vars: dict[str, Any]) -> str:
+def _multi_label_filter(
+    var: str, emap: dict[str, Any], bind_vars: dict[str, Any], *, negatable: bool = False
+) -> str:
     """The filter for a ``MULTI_LABEL`` supertype: ``@labelValue IN var[@labelsField]``.
 
     A supertype in a shared collection (LDBC's ``Message`` over ``nodes``) is
@@ -5003,6 +5005,13 @@ def _multi_label_filter(var: str, emap: dict[str, Any], bind_vars: dict[str, Any
     ``var[@memberTypeField] IN @memberTypes`` is tested first, so a scan can
     use a type-led index instead of reading every member
     (:func:`multi_label_member_types`).
+
+    *negatable* is for a label predicate in an expression, which ``NOT`` can
+    wrap. AQL parses ``NOT (x IN a)`` as ``x NOT IN a``, and both are false
+    when ``a`` is not an array, so ``NOT n:Message`` was false for a node with
+    no labels array. ``AND IS_ARRAY(a)`` keeps the parser from that rewrite and
+    changes nothing when the test holds. Pattern filters leave it out: they
+    are never negated, and without it the labels index alone can answer them.
     """
     lf, lv = emap.get("labelsField"), emap.get("labelValue")
     if not (isinstance(lf, str) and lf and isinstance(lv, str) and lv):
@@ -5018,7 +5027,7 @@ def _multi_label_filter(var: str, emap: dict[str, Any], bind_vars: dict[str, Any
     resolver = _active_resolver.get()
     member_types = multi_label_member_types(emap, resolver) if resolver is not None else None
     if member_types is None:
-        return labels_test
+        return f"({labels_test} AND IS_ARRAY({var}[@{lf_key}]))" if negatable else labels_test
     tf_key = _pick_bind_key("memberTypeField", bind_vars)
     types_key = _pick_bind_key("memberTypes", bind_vars)
     bind_vars[tf_key], bind_vars[types_key] = member_types
@@ -5059,7 +5068,7 @@ def _compile_label_predicate(
         mapping = resolver.resolve_entity(_strip_label_backticks(label))
         style = mapping.get("style")
         if style == "MULTI_LABEL":
-            parts.append(_multi_label_filter(var, mapping, bind_vars))
+            parts.append(_multi_label_filter(var, mapping, bind_vars, negatable=True))
             continue
         if style == "UNION":
             parts.append(union_membership_filter(var, label, resolver, bind_vars))

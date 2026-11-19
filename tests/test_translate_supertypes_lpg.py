@@ -150,3 +150,26 @@ def test_the_labels_array_alone_when_the_type_field_cannot_decide_membership(cha
     q = translate("MATCH (m:Message {id: 1}) RETURN m.id", mapping=_with_entities(**changes))
     assert _member_types(q, "m") is None, q.aql
     assert _multi_label(q, "m") == ("Message", "labels")
+
+
+# ---------------------------------------------------------------------------
+# NOT over a labels-array test: AQL parses NOT (x IN a) as x NOT IN a, which is
+# false when a is not an array. A label predicate, which NOT can wrap, adds
+# IS_ARRAY(a); a pattern filter, never negated, keeps the bare test.
+# ---------------------------------------------------------------------------
+
+_LABELS_ONLY = {"Post": {"labelsField": "labels"}}  # the type field cannot decide membership
+
+
+def test_a_label_predicate_on_a_labels_only_supertype_guards_the_array():
+    q = translate(
+        "MATCH (p:Person {id: 1})<-[:HAS_CREATOR]-(m) RETURN NOT m:Message AS notMessage",
+        mapping=_with_entities(**_LABELS_ONLY),
+    )
+    assert re.search(r"\(@\w+ IN m\[@(\w+)\] AND IS_ARRAY\(m\[@\1\]\)\)", q.aql), q.aql
+
+
+def test_a_pattern_filter_on_a_labels_only_supertype_keeps_the_bare_test():
+    q = translate("MATCH (m:Message {id: 1}) RETURN m.id", mapping=_with_entities(**_LABELS_ONLY))
+    assert "IS_ARRAY" not in q.aql, q.aql
+    assert _multi_label(q, "m") == ("Message", "labels")

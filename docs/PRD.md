@@ -1137,6 +1137,12 @@ arango-query-core ≥ 0.2.5 resolves the hierarchy
     scan that only an array index on the labels field could before
     (`multi_label_member_types` in `supertypes.py`; WP-44). Otherwise the
     labels test stands alone.
+  - A label predicate in an expression (`NOT n:Message`) guards a labels test
+    that stands alone with `AND IS_ARRAY(n[@labelsField])`. AQL parses
+    `NOT (x IN a)` as `x NOT IN a`, which is false when `a` is not an array, so
+    without the guard `NOT n:Message` was false for a node with no labels
+    array. Pattern filters are never negated and keep the bare test, which
+    the labels array index alone can answer.
   - CREATE of a member writes its supertypes into the array, and a
     whole-document SET keeps it.
   - CREATE by a supertype, and MERGE on a supertype or on one of its members,
