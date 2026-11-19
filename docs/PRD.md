@@ -620,9 +620,12 @@ the edge matched. `startNode(r)` / `endNode(r)` are the documents the edge's
 `_from` / `_to` name, as a MATCH binds a node, and null for null. ArangoDB refuses any `DOCUMENT()` after a write in the same statement (ERR 1579), so such AQL (`MERGE (a)-[r:T]-(b) RETURN startNode(r)`) is refused at translation (`refuse_document_after_write`) and runs as a multi-statement plan. Types mapped in different styles, or to different
 type-discriminated collections, are refused; so is a write to such a
 relationship and an edge scan `MATCH ()-[r:A|B]->()`. `p = shortestPath((a)-[:R*]-(b))` between
-nodes bound earlier (another pattern part or a WITH) is a breadth-first
-traversal that keeps the first path reaching `b`, so it honours the type
-guard on LPG; a pair with no path yields no row, as in a MATCH. The path is
+nodes bound earlier (another pattern part or a WITH) is, for edges told
+apart by a type field (LPG), a breadth-first traversal that keeps the first
+path reaching `b`, so it honours the type guard; for edges in their own
+collection(s) (PG), AQL's `SHORTEST_PATH`, which searches from both ends at
+once, keeping the path only when its length is in the range, and finding
+none from a null endpoint (WP-44). A pair with no path yields no row, as in a MATCH. The path is
 `{nodes, edges}`, so `length(p)` and `nodes(p)` work on it. One relationship,
 any type and direction, minimum length 0 or 1; relationship properties are
 refused. The grammar is regenerated with `scripts/regen_antlr.sh`. Aggregates follow Cypher's null semantics:

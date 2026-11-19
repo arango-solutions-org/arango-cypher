@@ -9,10 +9,13 @@ A breadth-first traversal from ``a`` that stops at the first path reaching
                   RETURN {nodes: _sp_p.vertices, edges: _sp_p.edges})
     FILTER p != null
 
-AQL's ``SHORTEST_PATH`` would be shorter but cannot filter edges by a type
-field, which every LPG mapping needs; a traversal gets the same
-variable-length type guard as any other (``_guard_varlength_edge_types``). As
-in a MATCH, a pair with no path yields no row. The path is ``{nodes, edges}``,
+That is the lowering for edges told apart by a type field (LPG): AQL's
+``SHORTEST_PATH`` cannot filter edges, and a traversal gets the same
+variable-length type guard as any other (``_guard_varlength_edge_types``).
+Edges in their own collection(s) (PG) use ``SHORTEST_PATH``, which searches
+from both ends at once instead of re-exploring the start's neighbourhood
+for every target (:func:`_native_shortest_path`, WP-44). As in a MATCH, a
+pair with no path yields no row. The path is ``{nodes, edges}``,
 as a named path in MATCH is, so ``length(p)`` and ``nodes(p)`` work on it.
 
 Supported: one relationship, both endpoints bound earlier in the query
@@ -126,6 +129,17 @@ def compile_shortest_path(
     var_env[path_var] = path_aql
     _core("_active_path_vars").get()[path_aql] = ([], [])
 
+    end_preds = [
+        pred
+        for node, var in ((start, a), (end, b))
+        if node.oC_NodeLabels() is not None
+        and (pred := _core("_compile_label_predicate")(var, node.oC_NodeLabels(), bind_vars)) is not None
+    ]
+    if r_map.get("style") == "DEDICATED_COLLECTION":
+        return _native_shortest_path(
+            a, b, direction, (rmin, rmax), r_map, end_preds, v, e, path_aql, forbidden, bind_vars, indent
+        )
+
     edge_key = _pick_bind_key("@spEdge", bind_vars)
     bind_vars[edge_key] = r_map.get("edgeCollectionName") or r_map.get("collectionName")
     filters: list[str] = []
@@ -134,11 +148,7 @@ def compile_shortest_path(
         tv = _pick_bind_key("spRelTV", bind_vars)
         bind_vars[tf], bind_vars[tv] = r_map.get("typeField"), r_map.get("typeValue")
         filters.append(f"{e}[@{tf}] == @{tv}")  # the variable-length guard extends it to every edge
-    for node, var in ((start, a), (end, b)):
-        if node.oC_NodeLabels() is not None:
-            pred = _core("_compile_label_predicate")(var, node.oC_NodeLabels(), bind_vars)
-            if pred is not None:
-                filters.append(pred)
+    filters.extend(end_preds)
     filters.append(f"{v}._id == {b}._id")
     traversal = (
         f"FOR {v}, {e}, {p} IN {rmin}..{rmax} {direction} {a} {_aql_collection_ref(edge_key)} "
@@ -147,3 +157,50 @@ def compile_shortest_path(
         + f" LIMIT 1 RETURN {{nodes: {p}.vertices, edges: {p}.edges}}"
     )
     return [f"{indent}LET {path_aql} = FIRST({traversal})", f"{indent}FILTER {path_aql} != null"]
+
+
+#: A vertex id no collection holds: ``SHORTEST_PATH`` refuses a null endpoint
+#: (ERR 1501, even in an untaken ternary branch), and from this one finds no path.
+_NO_VERTEX = '"_/_"'
+
+
+def _native_shortest_path(
+    a: str,
+    b: str,
+    direction: str,
+    depth: tuple[int, int],
+    r_map: dict[str, Any],
+    end_preds: list[str],
+    v: str,
+    e: str,
+    path_aql: str,
+    forbidden: set[str],
+    bind_vars: dict[str, Any],
+    indent: str,
+) -> list[str]:
+    """AQL's ``SHORTEST_PATH`` for edges in their own collection(s).
+
+    It searches from both ends at once, so it is fast for one pair and for a
+    start with many targets alike, where a breadth-first traversal per pair
+    re-explores the start's neighbourhood for every target (LDBC IC1). It has
+    no depth bound: the path is kept only when its length is in the range,
+    which is the same as searching within it. The endpoints' label tests,
+    which do not depend on the path, are checked beside it.
+    """
+    collections = r_map.get("edgeCollectionName") or r_map.get("collectionName")
+    names = collections if isinstance(collections, list) else [collections]
+    refs = []
+    for name in names:
+        key = _pick_bind_key("@spEdge", bind_vars)
+        bind_vars[key] = name
+        refs.append(_aql_collection_ref(key))
+    rows = _pick_fresh_var("_sp_rows", forbidden_vars=forbidden)
+    rmin, rmax = depth
+    keep = [f"LENGTH({rows}) > {rmin}", f"LENGTH({rows}) <= {rmax + 1}", *end_preds]
+    return [
+        f"{indent}LET {rows} = (FOR {v}, {e} IN {direction} SHORTEST_PATH NOT_NULL({a}, {_NO_VERTEX}) "
+        f"TO NOT_NULL({b}, {_NO_VERTEX}) {', '.join(refs)} RETURN {{v: {v}, e: {e}}})",
+        f"{indent}LET {path_aql} = ({' AND '.join(keep)}) "
+        f"? {{nodes: {rows}[*].v, edges: {rows}[* FILTER CURRENT.e != null].e}} : null",
+        f"{indent}FILTER {path_aql} != null",
+    ]
