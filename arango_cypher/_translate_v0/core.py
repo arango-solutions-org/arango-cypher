@@ -2434,6 +2434,14 @@ _FOR_LOOP_VARS = re.compile(
 )
 
 
+def _enclosing_match(ctx: Any) -> Any:
+    """The MATCH clause *ctx* sits in, or *ctx* itself when it sits in none."""
+    node = ctx
+    while node is not None and not isinstance(node, CypherParser.OC_MatchContext):
+        node = node.parentCtx
+    return node if node is not None else ctx
+
+
 def _compile_match_multi_parts_from_parts(
     parts: list,
     *,
@@ -2575,7 +2583,10 @@ def _compile_match_multi_parts_from_parts(
         _active_path_vars.get()[name] = ([], [])
 
     rel_part_i = 0
-    all_named_rel_vars: list[str] = []
+    # Relationship uniqueness holds within one MATCH clause, not across clauses
+    # (``MATCH (a)-->(b) MATCH (c)-->(d)`` may bind one edge twice): grouped by
+    # the clause each part belongs to.
+    unique_rel_vars: dict[int, list[str]] = {}
     # A shortestPath() part needs its endpoints bound: compiled after the others.
     shortest_parts = [part for part in parts if shortest_path_pattern(part) is not None]
     parts = [part for part in parts if shortest_path_pattern(part) is None]
@@ -2811,8 +2822,12 @@ def _compile_match_multi_parts_from_parts(
                 add_filter(f)
 
             forbidden.add(rel_var)
-            if rel_is_named:
-                all_named_rel_vars.append(rel_var)
+            # Cypher's relationship uniqueness spans every part of the MATCH;
+            # separate traversals do not enforce it, so each single-edge hop
+            # joins the check, named or not. An unnamed variable-length hop
+            # binds only its last edge here, so no complete check is possible.
+            if rel_is_named or rel_range == (1, 1):
+                unique_rel_vars.setdefault(id(_enclosing_match(part)), []).append(rel_var)
             if not v_bound:
                 forbidden.add(v_var)
                 if v_labels:
@@ -2821,7 +2836,8 @@ def _compile_match_multi_parts_from_parts(
             current_u = v_trav
         bind_named_path(part, path_nodes, path_edges)
 
-    _emit_relationship_uniqueness(all_named_rel_vars, lines, indent=indent_filter_line())
+    for clause_rel_vars in unique_rel_vars.values():
+        _emit_relationship_uniqueness(clause_rel_vars, lines, indent=indent_filter_line())
 
     for part in shortest_parts:
         env = {v: v for v in forbidden}

@@ -6,7 +6,7 @@ from arango_cypher import translate
 from tests.helpers.mapping_fixtures import mapping_bundle_for
 
 
-@pytest.mark.parametrize("case_id", ["C720", "C721"])
+@pytest.mark.parametrize("case_id", ["C720", "C721", "C1417", "C1418"])
 def test_translate_relationship_uniqueness_goldens(corpus_cases, case_id: str):
     case = next(c for c in corpus_cases if c.id == case_id)
     mapping = mapping_bundle_for(case.mapping_fixture)
