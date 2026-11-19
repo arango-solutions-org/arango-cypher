@@ -96,7 +96,7 @@ from .naming import (
     _rewrite_vars,
     _strip_label_backticks,
 )
-from .pattern_reversal import from_bound_end
+from .pattern_reversal import from_bound_end, from_selective_end
 from .percentiles import parse_percentile, percentile_value
 from .pipeline_writes import append_midquery_writes, refuse_after_write, split_writes
 from .plan_steps import translate_step
@@ -1210,7 +1210,10 @@ def _translate_match_body(
     # Extract single pattern element (existing v0 behavior)
     anon = all_parts[0].oC_AnonymousPatternPart()
     refuse_unbound_shortest_path(anon)
-    elem = anon.oC_PatternElement()
+    # Start from the end an index finds (pattern_reversal).
+    elem = from_selective_end(
+        anon.oC_PatternElement(), resolver, named=all_parts[0].oC_Variable() is not None
+    )
     node = elem.oC_NodePattern()
     if node is None:
         raise CoreError("Only node patterns are supported in v0", code="UNSUPPORTED")
@@ -2580,7 +2583,16 @@ def _compile_match_multi_parts_from_parts(
         anon = part.oC_AnonymousPatternPart()
         if anon is None:
             raise CoreError("Named pattern parts are not supported in v0", code="UNSUPPORTED")
+        # Start from a node an earlier part bound, else from the end an index
+        # finds (pattern_reversal); a named path keeps its written order.
         elem = anon.oC_PatternElement()
+        if part.oC_Variable() is None:
+            reversed_elem = from_bound_end(elem, {v: v for v in forbidden})
+            elem = (
+                reversed_elem
+                if reversed_elem is not elem
+                else from_selective_end(elem, resolver, bound=forbidden)
+            )
         node = elem.oC_NodePattern()
         if node is None:
             raise CoreError("Only node-based pattern parts are supported in v0", code="UNSUPPORTED")
@@ -2861,10 +2873,13 @@ def _compile_match_from_bound(
             continue
         if part.oC_AnonymousPatternPart() is None:
             raise CoreError("Named paths in a MATCH after WITH are not supported", code="UNSUPPORTED")
-        # Read from the bound end when only the last node is bound (pattern_reversal).
+        # Read from the bound end when only the last node is bound, else from
+        # the end an index finds (pattern_reversal).
         written = part.oC_AnonymousPatternPart().oC_PatternElement()
-        elem = from_bound_end(written, out_env)
         path_name = part.oC_Variable().getText().strip() if part.oC_Variable() is not None else None
+        elem = from_bound_end(written, out_env)
+        if elem is written:
+            elem = from_selective_end(written, resolver, bound=out_env, named=path_name is not None)
         has_chain = _compile_bound_part(
             elem,
             resolver=resolver,
@@ -3212,7 +3227,8 @@ def _compile_match_pipeline(
         raise CoreError("Only a single pattern part is supported in v0", code="UNSUPPORTED")
     anon = parts[0].oC_AnonymousPatternPart()
     refuse_unbound_shortest_path(anon)
-    elem = anon.oC_PatternElement()
+    # Start from the end an index finds (pattern_reversal).
+    elem = from_selective_end(anon.oC_PatternElement(), resolver, named=parts[0].oC_Variable() is not None)
     node = elem.oC_NodePattern()
     if node is None:
         raise CoreError("Only node patterns are supported in v0", code="UNSUPPORTED")
