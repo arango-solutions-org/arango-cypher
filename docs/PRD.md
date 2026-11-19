@@ -600,12 +600,7 @@ access (`n.address.zip`). A parameter that shares its name with a bind
 variable the translation generates (`typeValue`, `@collection`, …) and would
 have its value replaced is refused (`UNSUPPORTED`) rather than silently rebound.
 A variable-length relationship on a type-discriminated (LPG) edge collection
-follows only edges of its type; `*0..` includes the zero-hop row. The
-traversal is pruned at an edge of another type and also filtered by
-`p.edges[*][@typeField] ALL == @typeValue` (`ALL IN` for several types) on its
-path, which ArangoDB turns into an edge condition a vertex-centric
-`(_from, type)` index can serve; a PRUNE alone kept that index out
-(`_guard_varlength_edge_types`, WP-44). An open-ended
+follows only edges of its type; `*0..` includes the zero-hop row. An open-ended
 range (`*`, `*2..`) is limited to 10 hops (`_MAX_VLP_DEPTH`), and the
 translation says so in a warning. `coalesce()` is AQL `NOT_NULL()`.
 A `MATCH` after `WITH` may have several comma-separated pattern parts. A
@@ -627,7 +622,9 @@ type-discriminated collections, are refused; so is a write to such a
 relationship and an edge scan `MATCH ()-[r:A|B]->()`. `p = shortestPath((a)-[:R*]-(b))` between
 nodes bound earlier (another pattern part or a WITH) is, for edges told
 apart by a type field (LPG), a breadth-first traversal that keeps the first
-path reaching `b`, so it honours the type guard; for edges in their own
+path reaching `b`, so it honours the type guard, and that tests every edge
+of its path (`p.edges[*][@typeField] ALL == @typeValue`, `ALL IN` for several
+types) so a vertex-centric `(_from, type)` index can serve it; for edges in their own
 collection(s) (PG), AQL's `SHORTEST_PATH`, which searches from both ends at
 once, keeping the path only when its length is in the range, and finding
 none from a null endpoint (WP-44). A pair with no path yields no row, as in a MATCH. The path is

@@ -33,16 +33,7 @@ cases:
   params:
     id: 1
   expected:
-    aql: |
-      WITH @@uCollection
-      FOR t IN @@uCollection
-        FILTER t[@uTypeField] == @uTypeValue
-        FILTER (@id != null AND t.id == @id)
-        FOR c, r, _vlp IN 0..2 OUTBOUND t @@edgeCollection PRUNE r != null AND r[@relTypeField] NOT IN @relTypeValue
-          FILTER IS_SAME_COLLECTION(@vCollection, c)
-          FILTER c[@vTypeField] == @vTypeValue
-          FILTER _vlp.edges[*][@relTypeField] ALL IN @relTypeValue FILTER (r == null OR r[@relTypeField] IN @relTypeValue)
-          RETURN {id: c.id}
+    aql: "WITH @@uCollection\nFOR t IN @@uCollection\n  FILTER t[@uTypeField] == @uTypeValue\n  FILTER (@id != null AND t.id == @id)\n  FOR c, r IN 0..2 OUTBOUND t @@edgeCollection PRUNE r != null AND r[@relTypeField] NOT IN @relTypeValue\n    FILTER IS_SAME_COLLECTION(@vCollection, c)\n    FILTER c[@vTypeField] == @vTypeValue\n    FILTER (r == null OR r[@relTypeField] IN @relTypeValue)\n    RETURN {id: c.id}\n"
     bind_vars:
       id: 1
       "@uCollection": nodes

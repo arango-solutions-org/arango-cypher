@@ -25,6 +25,7 @@ pytestmark = pytest.mark.integration
 _DB = "arango_cypher_shortest_path_it"
 _PEOPLE = ["a", "b", "c", "d", "e"]
 _EDGES = [("a", "b", "KNOWS"), ("b", "c", "KNOWS"), ("c", "d", "KNOWS"), ("a", "d", "LIKES")]
+_POSTS = 30
 
 
 def _pg() -> MappingBundle:
@@ -96,8 +97,19 @@ def db() -> Iterator[Any]:
             database.create_collection(t, edge=True).import_bulk(
                 [{"_from": f"person/{a}", "_to": f"person/{b}"} for a, b, tt in _EDGES if tt.lower() == t]
             )
-        database.create_collection("edges", edge=True).import_bulk(
-            [{"_from": f"nodes/{a}", "_to": f"nodes/{b}", "type": t} for a, b, t in _EDGES]
+        edges = database.create_collection("edges", edge=True)
+        # The LDBC LPG layout's edge VCIs (tests/ldbc/loader.py lpg_indexes).
+        edges.add_index({"type": "persistent", "fields": ["_from", "type"], "name": "idx_edges_from_type"})
+        edges.add_index({"type": "persistent", "fields": ["_to", "type"], "name": "idx_edges_to_type"})
+        edges.import_bulk([{"_from": f"nodes/{a}", "_to": f"nodes/{b}", "type": t} for a, b, t in _EDGES])
+        # Every person also likes _POSTS posts on LPG: edges a KNOWS search must not read.
+        database.collection("nodes").import_bulk([{"_key": f"m{i}", "type": "Post"} for i in range(_POSTS)])
+        edges.import_bulk(
+            [
+                {"_from": f"nodes/{x}", "_to": f"nodes/m{i}", "type": "LIKES"}
+                for x in _PEOPLE
+                for i in range(_POSTS)
+            ]
         )
         yield database
     finally:
@@ -208,3 +220,12 @@ def test_dedicated_edge_collections_use_arangodb_shortest_path(db: Any) -> None:
     nodes = [n["type"] for n in db.aql.explain(q.aql, bind_vars=q.bind_vars)["nodes"]]
     assert "ShortestPathNode" in nodes, q.aql
     assert "TraversalNode" not in nodes, q.aql
+
+
+def test_an_lpg_search_reads_only_edges_of_its_type(db: Any) -> None:
+    """The guard's PRUNE alone kept the (_from, type) index out, so the search read
+    every LIKES edge of every person it reached; the path condition lets it in (WP-44)."""
+    q = translate(_QUERY, mapping=_lpg(), params={"from": "a", "to": "d"})
+    cursor = db.aql.execute(q.aql, bind_vars=q.bind_vars)
+    assert list(cursor) == [{"n": 3, "ids": ["a", "b", "c", "d"]}]
+    assert cursor.statistics()["scanned_index"] < _POSTS, q.aql
