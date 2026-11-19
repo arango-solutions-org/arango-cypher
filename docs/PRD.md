@@ -829,6 +829,24 @@ nothing. `MATCH … UNWIND … RETURN` runs the UNWIND before the projection's
 whose only MATCHes are `OPTIONAL` projects its RETURN over one row of null
 variables when nothing matches (`n.missing IS NULL` is true).
 
+**Where a pattern starts (WP-44).** A pattern compiles from its first node
+unless reading it backwards, with each relationship's direction flipped, starts
+from a better one (`arango_cypher/_translate_v0/pattern_reversal.py`):
+- a node already bound, when only its last node is: an OPTIONAL MATCH, a MATCH
+  after WITH, and a part of a multi-part MATCH joined to an earlier part;
+- otherwise the end an index finds: when neither end is bound, the first node
+  has no index lookup and the last has one. A lookup is an inline property
+  equality (`(t:Tag {name: $name})`) on the leading field of one of the label's
+  persistent indexes, the type field of a `LABEL` entity skipped (the label
+  test fixes it); a supertype has one when every member does. This applies to a
+  first MATCH, a MATCH after WITH and a multi-part MATCH's parts.
+- The index rule leaves a named path, and a variable-length relationship
+  with a variable, in their written order: reading backwards would reverse a
+  value the query sees.
+
+Only the mapping's indexes decide, so translation needs no database
+statistics. The rows are the pattern's whatever its start.
+
 `x[i]` is Cypher's: unless the query shows a list read with an integer or a
 map read with a string, the subscript checks the run-time types and fails
 with the Cypher TypeError (`InvalidArgumentType`,

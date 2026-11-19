@@ -96,13 +96,22 @@ cases:
 
     '
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@uCollection\nFOR u IN @@uCollection\n  FOR v, r IN 1..1 OUTBOUND u @@edgeCollection\n    FILTER IS_SAME_COLLECTION(@vCollection, v)\n    FOR w IN @@wCollection\n      FOR v_m, r2 IN 1..1 OUTBOUND w @@edgeCollection2\n        FILTER v_m._id == v._id\n        SORT (u.id == null), u.id, (w.id == null), w.id, (v.id == null), v.id\n        LIMIT 10\n        RETURN {id: u.id, w_id: w.id, v_id: v.id}\n"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@uCollection
+      FOR u IN @@uCollection
+        FOR v, r IN 1..1 OUTBOUND u @@edgeCollection
+          FILTER IS_SAME_COLLECTION(@vCollection, v)
+          FOR w, r2 IN 1..1 INBOUND v @@edgeCollection2
+            FILTER IS_SAME_COLLECTION(@wCollection, w)
+            SORT (u.id == null), u.id, (w.id == null), w.id, (v.id == null), v.id
+            LIMIT 10
+            RETURN {id: u.id, w_id: w.id, v_id: v.id}
     bind_vars:
       "@uCollection": users
       "@edgeCollection": follows
       vCollection: users
-      "@wCollection": users
       "@edgeCollection2": follows
+      wCollection: users
       "@withCollection0": docs
       "@withCollection1": persons
       "@withCollection2": places

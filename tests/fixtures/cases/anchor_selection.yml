@@ -1,0 +1,79 @@
+version: 1
+cases:
+  - id: C1415
+    name: a first MATCH starts at the end an index finds (PG, LDBC BI16)
+    mapping_fixture: ldbc_pg
+    extensions_enabled: false
+    cypher: |
+      MATCH (p:Person)<-[:HAS_CREATOR]-(m:Message)-[:HAS_TAG]->(t:Tag {name: $name})
+      RETURN p.id AS person, m.id AS message
+    params:
+      name: Meryl_Streep
+    expected:
+      aql: |
+        WITH @@withCollection0, @@withCollection1, @@withCollection2, @@withCollection3, @@withCollection4, @@withCollection5, @@withCollection6, @@withCollection7, @@uCollection, @@withCollection8, @@withCollection9
+        FOR t IN @@uCollection
+          FILTER (@name != null AND t.name == @name)
+          FOR m, r IN 1..1 INBOUND t @@edgeCollection
+            FILTER PARSE_IDENTIFIER(m).collection IN @mMembers
+            FOR p, r_1 IN 1..1 OUTBOUND m @@edgeCollection2
+              FILTER r._id != r_1._id
+              RETURN {person: p.id, message: m.id}
+      bind_vars:
+        name: Meryl_Streep
+        "@uCollection": tag
+        "@edgeCollection": has_tag
+        "@edgeCollection2": has_creator
+        mMembers: [post, comment]
+        "@withCollection0": city
+        "@withCollection1": comment
+        "@withCollection2": company
+        "@withCollection3": continent
+        "@withCollection4": country
+        "@withCollection5": forum
+        "@withCollection6": person
+        "@withCollection7": post
+        "@withCollection8": tag_class
+        "@withCollection9": university
+  - id: C1416
+    name: a first MATCH starts at the end a type-led index finds (LPG, LDBC BI16)
+    mapping_fixture: ldbc_lpg
+    extensions_enabled: false
+    cypher: |
+      MATCH (p:Person)<-[:HAS_CREATOR]-(m:Message)-[:HAS_TAG]->(t:Tag {name: $name})
+      RETURN p.id AS person, m.id AS message
+    params:
+      name: Meryl_Streep
+    expected:
+      aql: |
+        WITH @@uCollection
+        FOR t IN @@uCollection
+          FILTER t[@uTypeField] == @uTypeValue
+          FILTER (@name != null AND t.name == @name)
+          FOR m, r IN 1..1 INBOUND t @@edgeCollection OPTIONS {indexHint: {"edges": {"inbound": {"base": "idx_edges_to_type"}}}}
+            FILTER IS_SAME_COLLECTION(@vCollection, m)
+            FILTER (m[@memberTypeField] IN @memberTypes AND @labelValue IN m[@labelsField])
+            FILTER r[@relTypeField] == @relTypeValue
+            FOR p, r_1 IN 1..1 OUTBOUND m @@edgeCollection2 OPTIONS {indexHint: {"edges": {"outbound": {"base": "idx_edges_from_type"}}}}
+              FILTER p[@vTypeField] == @vTypeValue
+              FILTER r_1[@relTypeField2] == @relTypeValue2
+              FILTER r._id != r_1._id
+              RETURN {person: p.id, message: m.id}
+      bind_vars:
+        name: Meryl_Streep
+        "@uCollection": nodes
+        uTypeField: type
+        uTypeValue: Tag
+        "@edgeCollection": edges
+        "@edgeCollection2": edges
+        vCollection: nodes
+        labelsField: labels
+        labelValue: Message
+        memberTypeField: type
+        memberTypes: [Post, Comment]
+        relTypeField: type
+        relTypeValue: HAS_TAG
+        vTypeField: type
+        vTypeValue: Person
+        relTypeField2: type
+        relTypeValue2: HAS_CREATOR

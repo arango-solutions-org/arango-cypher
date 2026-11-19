@@ -949,6 +949,15 @@ reach `matches_oracle`. **Achieved 2026-10-29.**
     now tested beside it and the `(type, id)` index answers. The plan-shape
     regression bound is `tests/integration/test_supertype_lpg_index_live.py`;
     the before and after timings stay internal (decision 11).
+  - *Anchor selection (2026-11).* A pattern compiled from its first node, so
+    `(p:Person)<-[:HAS_CREATOR]-(m:Message)-[:HAS_TAG]->(t:Tag {name: $tag})`
+    scanned every Person when the Tag's name index finds the one tag the rows
+    start from. A pattern whose last node alone has an inline equality on an
+    indexed property is now read from that end, decided from the mapping's
+    indexes (BI2, BI11, BI16 change). The plan-shape regression bound is
+    `tests/integration/test_anchor_selection_live.py`. Not yet: an anchor in
+    the middle of a pattern, WHERE equalities and IN lists (IC3), and range
+    anchors (BI9, BI12).
 
 ---
 

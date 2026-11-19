@@ -11,22 +11,24 @@ cases:
     expected:
       aql: |
         WITH @@uCollection
-        FOR a IN @@uCollection
-          FILTER a[@uTypeField] == @uTypeValue
-          FILTER ("Person" IN a.labels)
-          FOR m, r IN 1..1 OUTBOUND a @@edgeCollection OPTIONS {indexHint: {"edges": {"outbound": {"base": "idx_edges_relation"}}}}
-            FILTER m[@vTypeField] == @vTypeValue
+        FOR m IN @@uCollection
+          FILTER m[@uTypeField] == @uTypeValue
+          FILTER (m.title == "Forrest Gump")
+          FOR a, r IN 1..1 INBOUND m @@edgeCollection OPTIONS {indexHint: {"edges": {"inbound": {"base": "idx_edges_relation"}}}}
+            FILTER IS_SAME_COLLECTION(@vCollection, a)
+            FILTER a[@vTypeField] == @vTypeValue
+            FILTER ("Person" IN a.labels)
             FILTER r[@relTypeField] == @relTypeValue
-            FILTER (m.title == "Forrest Gump")
             SORT (a.name == null), (IS_STRING(a.name) ? TO_HEX(a.name) : a.name)
             RETURN a.name
       bind_vars:
         "@uCollection": nodes
         uTypeField: type
-        uTypeValue: Actor
+        uTypeValue: Movie
         "@edgeCollection": edges
+        vCollection: nodes
         vTypeField: type
-        vTypeValue: Movie
+        vTypeValue: Actor
         relTypeField: relation
         relTypeValue: ACTED_IN
   - id: C203
@@ -40,23 +42,25 @@ cases:
     expected:
       aql: |
         WITH @@uCollection
-        FOR a IN @@uCollection
-          FILTER a[@uTypeField] == @uTypeValue
-          FILTER ("Person" IN a.labels)
-          FOR m, r IN 1..1 OUTBOUND a @@edgeCollection OPTIONS {indexHint: {"edges": {"outbound": {"base": "idx_edges_relation"}}}}
-            FILTER m[@vTypeField] == @vTypeValue
+        FOR m IN @@uCollection
+          FILTER m[@uTypeField] == @uTypeValue
+          FILTER (m.title == "Forrest Gump")
+          FOR a, r IN 1..1 INBOUND m @@edgeCollection OPTIONS {indexHint: {"edges": {"inbound": {"base": "idx_edges_relation"}}}}
+            FILTER IS_SAME_COLLECTION(@vCollection, a)
+            FILTER a[@vTypeField] == @vTypeValue
+            FILTER ("Person" IN a.labels)
             FILTER r[@relTypeField] == @relTypeValue
             FILTER (r.role == "Forrest")
-            FILTER (m.title == "Forrest Gump")
             SORT (a.name == null), (IS_STRING(a.name) ? TO_HEX(a.name) : a.name)
             RETURN a.name
       bind_vars:
         "@uCollection": nodes
         uTypeField: type
-        uTypeValue: Actor
+        uTypeValue: Movie
         "@edgeCollection": edges
+        vCollection: nodes
         vTypeField: type
-        vTypeValue: Movie
+        vTypeValue: Actor
         relTypeField: relation
         relTypeValue: ACTED_IN
   - id: C202
@@ -140,18 +144,20 @@ cases:
     expected:
       aql: |
         WITH @@uCollection
-        FOR a IN @@uCollection
-          FOR m, r IN 1..1 OUTBOUND a @@edgeCollection OPTIONS {indexHint: {"edges": {"outbound": {"base": "idx_edges_relation"}}}}
-            FILTER m[@vTypeField] == @vTypeValue
+        FOR m IN @@uCollection
+          FILTER m[@uTypeField] == @uTypeValue
+          FILTER (m.title == "Forrest Gump")
+          FOR a, r IN 1..1 INBOUND m @@edgeCollection OPTIONS {indexHint: {"edges": {"inbound": {"base": "idx_edges_relation"}}}}
+            FILTER IS_SAME_COLLECTION(@vCollection, a)
             FILTER r[@relTypeField] == @relTypeValue
             FILTER (r.role == "Forrest")
-            FILTER (m.title == "Forrest Gump")
             SORT (a.name == null), (IS_STRING(a.name) ? TO_HEX(a.name) : a.name)
             RETURN a.name
       bind_vars:
         "@uCollection": nodes
+        uTypeField: type
+        uTypeValue: Movie
         "@edgeCollection": edges
-        vTypeField: type
-        vTypeValue: Movie
+        vCollection: nodes
         relTypeField: relation
         relTypeValue: ACTED_IN
