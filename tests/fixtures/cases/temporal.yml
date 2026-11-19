@@ -24,8 +24,8 @@ cases:
   params:
     d: '2012-01-01T00:00:00.000+00:00'
   expected:
-    aql: "FOR m IN @@collection\n  FILTER @labelValue IN m[@labelsField]\n  FILTER (m.creationDate != null AND @d\
-      \ != null AND m.creationDate < @d)\n  COLLECT year = ((m.creationDate == null) ? null : DATE_YEAR(m.creationDate))\
+    aql: "FOR m IN @@collection\n  FILTER (m[@memberTypeField] IN @memberTypes AND @labelValue IN m[@labelsField])\n\
+      \  FILTER (m.creationDate != null AND @d != null AND m.creationDate < @d)\n  COLLECT year = ((m.creationDate == null) ? null : DATE_YEAR(m.creationDate))\
       \ AGGREGATE _n_nonnull = SUM((m) == null ? 0 : 1)\n  LET n = NOT_NULL(_n_nonnull, 0)\n  RETURN {year: year,\
       \ n: n}"
     bind_vars:
@@ -33,6 +33,8 @@ cases:
       '@collection': nodes
       labelsField: labels
       labelValue: Message
+      memberTypeField: type
+      memberTypes: [Post, Comment]
 - id: C872
   name: accessors on a WITH variable bound to datetime({epochMillis}) (LDBC IC10)
   mapping_fixture: ldbc_pg

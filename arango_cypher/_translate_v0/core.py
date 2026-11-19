@@ -141,7 +141,12 @@ from .subqueries import (
     translate_single_part_with_calls,
 )
 from .subscripts import compile_subscript
-from .supertypes import node_collection_filter, node_scan_source, union_membership_filter
+from .supertypes import (
+    multi_label_member_types,
+    node_collection_filter,
+    node_scan_source,
+    union_membership_filter,
+)
 from .temporal import (
     bind_with,
     comparison_operands,
@@ -4994,7 +4999,10 @@ def _multi_label_filter(var: str, emap: dict[str, Any], bind_vars: dict[str, Any
 
     A supertype in a shared collection (LDBC's ``Message`` over ``nodes``) is
     every document whose labels array lists it (arango-query-core
-    ``SUPERTYPE_STYLES``).
+    ``SUPERTYPE_STYLES``). When its members are told apart by one type field,
+    ``var[@memberTypeField] IN @memberTypes`` is tested first, so a scan can
+    use a type-led index instead of reading every member
+    (:func:`multi_label_member_types`).
     """
     lf, lv = emap.get("labelsField"), emap.get("labelValue")
     if not (isinstance(lf, str) and lf and isinstance(lv, str) and lv):
@@ -5006,7 +5014,15 @@ def _multi_label_filter(var: str, emap: dict[str, Any], bind_vars: dict[str, Any
     lv_key = _pick_bind_key("labelValue", bind_vars)
     bind_vars[lf_key] = lf
     bind_vars[lv_key] = lv
-    return f"@{lv_key} IN {var}[@{lf_key}]"
+    labels_test = f"@{lv_key} IN {var}[@{lf_key}]"
+    resolver = _active_resolver.get()
+    member_types = multi_label_member_types(emap, resolver) if resolver is not None else None
+    if member_types is None:
+        return labels_test
+    tf_key = _pick_bind_key("memberTypeField", bind_vars)
+    types_key = _pick_bind_key("memberTypes", bind_vars)
+    bind_vars[tf_key], bind_vars[types_key] = member_types
+    return f"({var}[@{tf_key}] IN @{types_key} AND {labels_test})"
 
 
 def _compile_label_predicate(

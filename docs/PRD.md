@@ -1129,6 +1129,14 @@ arango-query-core ≥ 0.2.5 resolves the hierarchy
 - **LPG (stage 1).** The supertype maps as a `MULTI_LABEL` entity over the
   node's labels array (`labelsField`, `labelValue`), and `(m:Message)` filters
   `@labelValue IN m[@labelsField]`.
+  - When every member is a `LABEL` entity in the supertype's collection, told
+    apart by one type field and with no labels array of its own, the filter
+    also tests `m[@memberTypeField] IN @memberTypes` (the members' type
+    values), ANDed with the labels test in one parenthesised expression. The
+    rows do not change, but a type-led index such as `(type, id)` can serve a
+    scan that only an array index on the labels field could before
+    (`multi_label_member_types` in `supertypes.py`; WP-44). Otherwise the
+    labels test stands alone.
   - CREATE of a member writes its supertypes into the array, and a
     whole-document SET keeps it.
   - CREATE by a supertype, and MERGE on a supertype or on one of its members,
