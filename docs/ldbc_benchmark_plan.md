@@ -958,6 +958,13 @@ reach `matches_oracle`. **Achieved 2026-10-29.**
     `tests/integration/test_anchor_selection_live.py`. Not yet: an anchor in
     the middle of a pattern, WHERE equalities and IN lists (IC3), and range
     anchors (BI9, BI12).
+  - *shortestPath on PG (2026-11).* A breadth-first traversal per pair
+    re-explored the start's neighbourhood for every target (IC1: one per
+    candidate friend). Edges in their own collection now use AQL's
+    `SHORTEST_PATH`, which searches from both ends; the plan-shape bound is
+    in `tests/integration/test_shortest_path_live.py`. LPG keeps the
+    traversal: its variable-length type guard (a PRUNE) keeps the
+    `(_from, type)` index out, which is the next step.
 
 ---
 

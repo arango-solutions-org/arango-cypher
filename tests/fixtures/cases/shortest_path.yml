@@ -10,7 +10,16 @@ cases:
     a: 1
     b: 2
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@withCollection3, @@withCollection4, @@withCollection5, @@collection, @@withCollection6, @@withCollection7, @@withCollection8, @@withCollection9\nFOR a IN @@collection\n  FILTER (@a != null AND a.id == @a)\n  FOR b IN @@collection2\n    FILTER (@b != null AND b.id == @b)\n    LET p = FIRST(FOR _sp_v, _sp_e, _sp_p IN 1..10 ANY a @@spEdge OPTIONS {order: \"bfs\", uniqueVertices: \"global\"} FILTER _sp_v._id == b._id LIMIT 1 RETURN {nodes: _sp_p.vertices, edges: _sp_p.edges})\n    FILTER p != null\n    RETURN {n: LENGTH(p.edges)}\n"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@withCollection3, @@withCollection4, @@withCollection5, @@collection, @@withCollection6, @@withCollection7, @@withCollection8, @@withCollection9
+      FOR a IN @@collection
+        FILTER (@a != null AND a.id == @a)
+        FOR b IN @@collection2
+          FILTER (@b != null AND b.id == @b)
+          LET _sp_rows = (FOR _sp_v, _sp_e IN ANY SHORTEST_PATH NOT_NULL(a, "_/_") TO NOT_NULL(b, "_/_") @@spEdge RETURN {v: _sp_v, e: _sp_e})
+          LET p = (LENGTH(_sp_rows) > 1 AND LENGTH(_sp_rows) <= 11) ? {nodes: _sp_rows[*].v, edges: _sp_rows[* FILTER CURRENT.e != null].e} : null
+          FILTER p != null
+          RETURN {n: LENGTH(p.edges)}
     bind_vars:
       a: 1
       b: 2

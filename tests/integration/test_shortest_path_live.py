@@ -166,3 +166,45 @@ def test_a_shortest_path_after_with(db: Any, mapping: MappingBundle) -> None:
 def test_refusals(mapping: MappingBundle, cypher: str, message: str) -> None:
     with pytest.raises(CoreError, match=message):
         translate(cypher, mapping=mapping)
+
+
+def test_a_null_endpoint_means_no_row(db: Any, mapping: MappingBundle) -> None:
+    """An endpoint an OPTIONAL MATCH left null has no path (AQL's SHORTEST_PATH refuses null)."""
+    rows = _rows(
+        db,
+        mapping,
+        "MATCH (x:Person {id: 'a'}) OPTIONAL MATCH (y:Person {id: 'nobody'}) WITH x, y "
+        "MATCH p = shortestPath((x)-[:KNOWS*]-(y)) RETURN length(p) AS n",
+    )
+    assert rows == []
+
+
+def test_several_types_take_the_shortest_route_over_any_of_them(db: Any, mapping: MappingBundle) -> None:
+    """a LIKES d directly: over KNOWS or LIKES the path has one edge."""
+    rows = _rows(
+        db,
+        mapping,
+        "MATCH (x:Person {id: 'a'}), (y:Person {id: 'd'}), p = shortestPath((x)-[:KNOWS|LIKES*]-(y)) "
+        "RETURN length(p) AS n",
+    )
+    assert rows == [{"n": 1}]
+
+
+def test_one_start_with_several_targets(db: Any, mapping: MappingBundle) -> None:
+    """Each target gets its own shortest path (LDBC IC1's many friends per person)."""
+    rows = _rows(
+        db,
+        mapping,
+        "MATCH (x:Person {id: 'a'}), (y:Person) WHERE x <> y WITH x, y "
+        "MATCH p = shortestPath((x)-[:KNOWS*]-(y)) RETURN y.id AS y, length(p) AS n ORDER BY y",
+    )
+    assert rows == [{"y": "b", "n": 1}, {"y": "c", "n": 2}, {"y": "d", "n": 3}]
+
+
+def test_dedicated_edge_collections_use_arangodb_shortest_path(db: Any) -> None:
+    """On PG the search is AQL's SHORTEST_PATH, from both ends at once (WP-44): a
+    traversal per pair re-explored the start's neighbourhood for every target."""
+    q = translate(_QUERY, mapping=_pg(), params={"from": "a", "to": "d"})
+    nodes = [n["type"] for n in db.aql.explain(q.aql, bind_vars=q.bind_vars)["nodes"]]
+    assert "ShortestPathNode" in nodes, q.aql
+    assert "TraversalNode" not in nodes, q.aql
