@@ -52,7 +52,16 @@ cases:
 
     '
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@uCollection\nFOR u IN @@uCollection\n  FOR v, r IN 1..1 OUTBOUND u @@edgeCollection\n    FILTER IS_SAME_COLLECTION(@vCollection, v)\n    FOR w, r2 IN 1..1 OUTBOUND v @@edgeCollection2\n      FILTER IS_SAME_COLLECTION(@wCollection, w)\n      SORT (u.id == null), u.id, (w.id == null), w.id\n      RETURN {id: u.id, w_id: w.id}\n"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@uCollection
+      FOR u IN @@uCollection
+        FOR v, r IN 1..1 OUTBOUND u @@edgeCollection
+          FILTER IS_SAME_COLLECTION(@vCollection, v)
+          FOR w, r2 IN 1..1 OUTBOUND v @@edgeCollection2
+            FILTER IS_SAME_COLLECTION(@wCollection, w)
+            FILTER r._id != r2._id
+            SORT (u.id == null), u.id, (w.id == null), w.id
+            RETURN {id: u.id, w_id: w.id}
     bind_vars:
       "@uCollection": users
       "@edgeCollection": follows
@@ -103,6 +112,7 @@ cases:
           FILTER IS_SAME_COLLECTION(@vCollection, v)
           FOR w, r2 IN 1..1 INBOUND v @@edgeCollection2
             FILTER IS_SAME_COLLECTION(@wCollection, w)
+            FILTER r._id != r2._id
             SORT (u.id == null), u.id, (w.id == null), w.id, (v.id == null), v.id
             LIMIT 10
             RETURN {id: u.id, w_id: w.id, v_id: v.id}

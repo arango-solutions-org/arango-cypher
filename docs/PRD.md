@@ -823,7 +823,11 @@ gets the traversal's path (`LET r = path.edges`), a named path splices each
 variable-length hop's vertices and edges, and the properties of a
 variable-length relationship hold for every edge, not only the last.
 Relationship uniqueness across a pattern's traversals covers merged hops and
-variable-length edge lists. An empty interval (`*2..1`, `*..0`) matches
+variable-length edge lists, and the comma-separated parts of one MATCH
+(`(u)-[:F]->(v), (w)-[:F]->(v)` never binds one edge twice), named or not; an
+unnamed variable-length hop there binds only its last edge, so it is left out.
+It holds within one MATCH clause only: `MATCH (u)-[a]->(v) MATCH (w)-[b]->(v)`
+may bind one edge to `a` and `b`. An empty interval (`*2..1`, `*..0`) matches
 nothing. `MATCH … UNWIND … RETURN` runs the UNWIND before the projection's
 `COLLECT`/`SORT`, and an UNWIND variable is in scope for `RETURN *`. A query
 whose only MATCHes are `OPTIONAL` projects its RETURN over one row of null

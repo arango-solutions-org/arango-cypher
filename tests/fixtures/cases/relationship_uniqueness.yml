@@ -43,3 +43,55 @@ cases:
       '@withCollection0': docs
       '@withCollection1': persons
       '@withCollection2': places
+- id: C1417
+  name: unnamed relationships in different pattern parts are distinct
+  mapping_fixture: pg
+  extensions_enabled: false
+  cypher: |
+    MATCH (u:User)-[:FOLLOWS]->(v:User), (w:User)-[:FOLLOWS]->(v)
+    RETURN u.id AS u, w.id AS w
+  expected:
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@uCollection
+      FOR u IN @@uCollection
+        FOR v, r IN 1..1 OUTBOUND u @@edgeCollection
+          FILTER IS_SAME_COLLECTION(@vCollection, v)
+          FOR w, r2 IN 1..1 INBOUND v @@edgeCollection2
+            FILTER IS_SAME_COLLECTION(@wCollection, w)
+            FILTER r._id != r2._id
+            RETURN {u: u.id, w: w.id}
+    bind_vars:
+      "@uCollection": users
+      "@edgeCollection": follows
+      vCollection: users
+      "@edgeCollection2": follows
+      wCollection: users
+      "@withCollection0": docs
+      "@withCollection1": persons
+      "@withCollection2": places
+- id: C1418
+  name: relationships in different MATCH clauses may be the same edge
+  mapping_fixture: pg
+  extensions_enabled: false
+  cypher: |
+    MATCH (u:User)-[a:FOLLOWS]->(v:User)
+    MATCH (w:User)-[b:FOLLOWS]->(v)
+    RETURN u.id AS u, w.id AS w
+  expected:
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@uCollection
+      FOR u IN @@uCollection
+        FOR v, a IN 1..1 OUTBOUND u @@edgeCollection
+          FILTER IS_SAME_COLLECTION(@vCollection, v)
+          FOR w, b IN 1..1 INBOUND v @@edgeCollection2
+            FILTER IS_SAME_COLLECTION(@wCollection, w)
+            RETURN {u: u.id, w: w.id}
+    bind_vars:
+      "@uCollection": users
+      "@edgeCollection": follows
+      vCollection: users
+      "@edgeCollection2": follows
+      wCollection: users
+      "@withCollection0": docs
+      "@withCollection1": persons
+      "@withCollection2": places
