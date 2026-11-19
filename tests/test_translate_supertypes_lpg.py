@@ -8,10 +8,12 @@ replacement keeps it, so supertype queries see new nodes too.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import re
 
 import pytest
-from arango_query_core import CoreError
+from arango_query_core import CoreError, MappingBundle
 
 from arango_cypher import translate
 from tests.helpers.mapping_fixtures import mapping_bundle_for
@@ -91,3 +93,60 @@ def test_delete_through_a_supertype_filters_on_the_labels_array():
 def test_replace_keeps_the_labels_array():
     q = _t("MATCH (p:Post {id: 1}) SET p = {id: 1, content: 'x'}")
     assert '"labels"' in q.aql, q.aql
+
+
+# ---------------------------------------------------------------------------
+# The members' type field beside the labels array (WP-44): a scan can use a
+# type-led index instead of reading every member (LDBC IS4 on LPG).
+# ---------------------------------------------------------------------------
+
+
+def _member_types(q, var: str) -> tuple[str, list[str]] | None:
+    m = re.search(rf"{var}\[@(\w+)\] IN @(\w+)", q.aql)
+    return (q.bind_vars[m.group(1)], q.bind_vars[m.group(2)]) if m else None
+
+
+def _with_entities(**changes) -> MappingBundle:
+    """The LDBC LPG bundle with each named entity's mapping updated by *changes*."""
+    bundle = mapping_bundle_for("ldbc_lpg")
+    physical = copy.deepcopy(bundle.physical_mapping)
+    for name, patch in changes.items():
+        physical["entities"][name].update(patch)
+    return dataclasses.replace(bundle, physical_mapping=physical)
+
+
+def test_scan_start_also_tests_the_members_type_field():
+    q = _t("MATCH (m:Message {id: 1}) RETURN m.id")
+    assert _member_types(q, "m") == ("type", ["Post", "Comment"])
+    assert _multi_label(q, "m") == ("Message", "labels")  # still tested: the rows do not change
+
+
+def test_every_member_of_place_is_named():
+    q = _t("MATCH (x:Place {id: 1}) RETURN x.name")
+    assert _member_types(q, "x") == ("type", ["City", "Country", "Continent"])
+
+
+def test_traversal_target_tests_the_members_type_field_too():
+    q = _t("MATCH (p:Person {id: 1})<-[:HAS_CREATOR]-(m:Message) RETURN m.id")
+    assert _member_types(q, "m") == ("type", ["Post", "Comment"])
+
+
+def test_a_label_predicate_keeps_the_two_tests_together():
+    q = _t("MATCH (p:Person {id: 1})<-[:HAS_CREATOR]-(m) RETURN NOT m:Message AS notMessage")
+    # One parenthesised conjunction, so NOT applies to both tests.
+    assert re.search(r"\(m\[@\w+\] IN @\w+ AND @\w+ IN m\[@\w+\]\)", q.aql), q.aql
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        pytest.param({"Post": {"labelsField": "labels"}}, id="member-with-its-own-labels-array"),
+        pytest.param({"Comment": {"collectionName": "comments"}}, id="member-in-another-collection"),
+        pytest.param({"Comment": {"typeField": "kind"}}, id="members-with-different-type-fields"),
+        pytest.param({"Comment": {"style": "GENERIC_WITH_TYPE"}}, id="member-not-mapped-label"),
+    ],
+)
+def test_the_labels_array_alone_when_the_type_field_cannot_decide_membership(changes):
+    q = translate("MATCH (m:Message {id: 1}) RETURN m.id", mapping=_with_entities(**changes))
+    assert _member_types(q, "m") is None, q.aql
+    assert _multi_label(q, "m") == ("Message", "labels")

@@ -942,6 +942,13 @@ reach `matches_oracle`. **Achieved 2026-10-29.**
   - Optional Neo4j timings on identical limits (indicative).
 - **Acceptance:** each optimisation lands with a before and after row in the
   report, and a regression bound.
+- **Done:**
+  - *LPG supertype scans (2026-11).* `(m:Message {id: $id})` on LPG tested only
+    the labels array, which only the labels array index serves, so a lookup by
+    id read every Message (IS4–IS7 start this way). The members' type field is
+    now tested beside it and the `(type, id)` index answers. The plan-shape
+    regression bound is `tests/integration/test_supertype_lpg_index_live.py`;
+    the before and after timings stay internal (decision 11).
 
 ---
 

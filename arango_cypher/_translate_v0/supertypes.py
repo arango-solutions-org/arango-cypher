@@ -25,7 +25,7 @@ from typing import Any
 
 from arango_query_core import CoreError, MappingResolver
 
-from .label_tests import label_test
+from .label_tests import label_test, labels_field
 from .naming import _aql_collection_ref, _pick_bind_key, _strip_label_backticks
 
 
@@ -63,6 +63,46 @@ def _member_type_filter(var: str, member: str, emap: dict[str, Any], bind_vars: 
     bind_vars[tf_key] = emap["typeField"]
     bind_vars[tv_key] = emap["typeValue"]
     return label_test(var, tf_key, tv_key, emap, bind_vars)
+
+
+def multi_label_member_types(emap: dict[str, Any], resolver: MappingResolver) -> tuple[str, list[str]] | None:
+    """``(typeField, [typeValue, …])`` naming a ``MULTI_LABEL`` supertype's
+    members by their type field, or ``None`` when the members do not allow it.
+
+    A ``MULTI_LABEL`` supertype is found by its labels array, which only an
+    array index on that field can serve, so ``(m:Message {id: $id})`` read
+    every Message to find one (LDBC IS4 on LPG). When every member is a
+    ``LABEL`` entity in the supertype's collection, discriminated by one type
+    field and with no labels array of its own (so the type field alone decides
+    membership), the supertype's documents are those whose type is a member's.
+    That test can use the type-led indexes an LPG collection has; the caller
+    keeps the labels-array test beside it, so the rows do not change.
+    """
+    coll = emap.get("collectionName")
+    name = next(
+        (n for n in resolver.all_entity_labels() if n and resolver.resolve_entity(n) == emap),
+        None,
+    )
+    if name is None or not isinstance(coll, str) or not coll:
+        return None
+    type_fields: set[str] = set()
+    values: list[str] = []
+    for member in resolver.supertype_members(name):
+        m = resolver.resolve_entity(member)
+        tf, tv = m.get("typeField"), m.get("typeValue")
+        if (
+            m.get("style") != "LABEL"
+            or m.get("collectionName") != coll
+            or labels_field(m) is not None
+            or not (isinstance(tf, str) and tf and isinstance(tv, str) and tv)
+        ):
+            return None
+        type_fields.add(tf)
+        if tv not in values:
+            values.append(tv)
+    if len(type_fields) != 1:
+        return None
+    return type_fields.pop(), values
 
 
 def union_membership_filter(

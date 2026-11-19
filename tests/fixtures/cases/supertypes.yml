@@ -105,16 +105,19 @@ cases:
     bind_vars:
       '@collection': post
 - id: C819
-  name: LPG supertype scan filters the labels array
+  name: LPG supertype scan filters the labels array and its members' type field
   mapping_fixture: ldbc_lpg
   extensions_enabled: false
   cypher: MATCH (m:Message) RETURN m.id AS id
   expected:
-    aql: "FOR m IN @@collection\n  FILTER @labelValue IN m[@labelsField]\n  RETURN {id: m.id}"
+    aql: "FOR m IN @@collection\n  FILTER (m[@memberTypeField] IN @memberTypes AND @labelValue IN m[@labelsField])\n\
+      \  RETURN {id: m.id}"
     bind_vars:
       '@collection': nodes
       labelsField: labels
       labelValue: Message
+      memberTypeField: type
+      memberTypes: [Post, Comment]
 - id: C820
   name: LPG member label implies its supertype label
   mapping_fixture: ldbc_lpg
