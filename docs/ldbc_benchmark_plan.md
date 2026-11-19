@@ -963,8 +963,19 @@ reach `matches_oracle`. **Achieved 2026-10-29.**
     candidate friend). Edges in their own collection now use AQL's
     `SHORTEST_PATH`, which searches from both ends; the plan-shape bound is
     in `tests/integration/test_shortest_path_live.py`. LPG keeps the
-    traversal: its variable-length type guard (a PRUNE) keeps the
-    `(_from, type)` index out, which is the next step.
+    traversal, since `SHORTEST_PATH` cannot filter edges.
+  - *shortestPath on LPG (2026-11).* The variable-length type guard, a
+    PRUNE, keeps the `(_from, type)` index out, so the search read every
+    edge of every person it reached. The search now also tests its path
+    (`p.edges[*][@tf] ALL == @tv`), which the index serves (IC1, IC13).
+    The bound is the index entries read, in
+    `tests/integration/test_shortest_path_live.py`.
+  - *Not done: the same path condition on every LPG variable-length hop.*
+    It helps where vertices have many edges of other types (IC1, IC9,
+    IC11) and hurts where they have few (BI12's `REPLY_OF*0..` about 2.5×
+    slower, IC12 about a quarter): the `(_from, type)` index has no
+    in-memory cache, the edge index has. The mapping holds no fan-out
+    statistics to choose by.
 
 ---
 

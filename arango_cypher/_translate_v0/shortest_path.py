@@ -12,6 +12,9 @@ A breadth-first traversal from ``a`` that stops at the first path reaching
 That is the lowering for edges told apart by a type field (LPG): AQL's
 ``SHORTEST_PATH`` cannot filter edges, and a traversal gets the same
 variable-length type guard as any other (``_guard_varlength_edge_types``).
+It also tests every edge of the path (``p.edges[*][@tf] ALL == @tv``), which
+lets a vertex-centric ``(_from, type)`` index hand over only edges of the
+type: a search spreads through people, who have many edges of other types.
 Edges in their own collection(s) (PG) use ``SHORTEST_PATH``, which searches
 from both ends at once instead of re-exploring the start's neighbourhood
 for every target (:func:`_native_shortest_path`, WP-44). As in a MATCH, a
@@ -147,6 +150,10 @@ def compile_shortest_path(
         tf = _pick_bind_key("spRelTF", bind_vars)
         tv = _pick_bind_key("spRelTV", bind_vars)
         bind_vars[tf], bind_vars[tv] = r_map.get("typeField"), r_map.get("typeValue")
+        # The guard's PRUNE alone keeps the (_from, type) index out, so the
+        # search read every edge of every vertex it reached; on the path, the
+        # type test becomes an edge condition the index serves (WP-44).
+        filters.append(f"{p}.edges[*][@{tf}] ALL == @{tv}")
         filters.append(f"{e}[@{tf}] == @{tv}")  # the variable-length guard extends it to every edge
     filters.extend(end_preds)
     filters.append(f"{v}._id == {b}._id")

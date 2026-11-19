@@ -46,7 +46,17 @@ cases:
     a: 1
     b: 2
   expected:
-    aql: "WITH @@collection\nFOR a IN @@collection\n  FILTER a[@aTypeField] == @aTypeValue\n  FILTER (@a != null AND a.id == @a)\n  FOR b IN @@collection2\n    FILTER b[@bTypeField] == @bTypeValue\n    FILTER (@b != null AND b.id == @b)\n    LET p = FIRST(FOR _sp_v, _sp_e, _sp_p IN 1..10 ANY a @@spEdge PRUNE _sp_e != null AND _sp_e[@spRelTF] != @spRelTV OPTIONS {order: \"bfs\", uniqueVertices: \"global\"} FILTER _sp_e[@spRelTF] == @spRelTV FILTER _sp_v._id == b._id LIMIT 1 RETURN {nodes: _sp_p.vertices, edges: _sp_p.edges})\n    FILTER p != null\n    RETURN {n: LENGTH(p.edges)}\n"
+    aql: |
+      WITH @@collection
+      FOR a IN @@collection
+        FILTER a[@aTypeField] == @aTypeValue
+        FILTER (@a != null AND a.id == @a)
+        FOR b IN @@collection2
+          FILTER b[@bTypeField] == @bTypeValue
+          FILTER (@b != null AND b.id == @b)
+          LET p = FIRST(FOR _sp_v, _sp_e, _sp_p IN 1..10 ANY a @@spEdge PRUNE _sp_e != null AND _sp_e[@spRelTF] != @spRelTV OPTIONS {order: "bfs", uniqueVertices: "global"} FILTER _sp_p.edges[*][@spRelTF] ALL == @spRelTV FILTER _sp_e[@spRelTF] == @spRelTV FILTER _sp_v._id == b._id LIMIT 1 RETURN {nodes: _sp_p.vertices, edges: _sp_p.edges})
+          FILTER p != null
+          RETURN {n: LENGTH(p.edges)}
     bind_vars:
       a: 1
       b: 2

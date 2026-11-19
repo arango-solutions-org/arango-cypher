@@ -622,7 +622,9 @@ type-discriminated collections, are refused; so is a write to such a
 relationship and an edge scan `MATCH ()-[r:A|B]->()`. `p = shortestPath((a)-[:R*]-(b))` between
 nodes bound earlier (another pattern part or a WITH) is, for edges told
 apart by a type field (LPG), a breadth-first traversal that keeps the first
-path reaching `b`, so it honours the type guard; for edges in their own
+path reaching `b`, so it honours the type guard, and that tests every edge
+of its path (`p.edges[*][@typeField] ALL == @typeValue`, `ALL IN` for several
+types) so a vertex-centric `(_from, type)` index can serve it; for edges in their own
 collection(s) (PG), AQL's `SHORTEST_PATH`, which searches from both ends at
 once, keeping the path only when its length is in the range, and finding
 none from a null endpoint (WP-44). A pair with no path yields no row, as in a MATCH. The path is
