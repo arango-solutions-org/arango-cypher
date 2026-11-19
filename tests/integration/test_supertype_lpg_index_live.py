@@ -1,4 +1,5 @@
-"""A ``MULTI_LABEL`` supertype scan on LPG uses the type-led index (WP-44).
+"""A ``MULTI_LABEL`` supertype scan on LPG uses the type-led index (WP-44), and
+``NOT n:Label`` over a labels array is right for a node without one.
 
 ``(m:Message {id: $id})`` on LPG tested only the labels array, which only the
 labels array index serves, so ArangoDB read every Message to find one (LDBC
@@ -9,6 +10,8 @@ those the labels array names, as before.
 
 from __future__ import annotations
 
+import copy
+import dataclasses
 import os
 from collections.abc import Iterator
 from typing import Any
@@ -92,4 +95,20 @@ def test_a_node_of_another_type_is_not_a_message(db: Any) -> None:
         {"id": 3, "other": True},
         {"id": 104, "other": False},
         {"id": 104, "other": True},
+    ], q.aql
+
+
+def test_not_label_is_true_for_a_node_without_a_labels_array_when_only_the_array_decides(db: Any) -> None:
+    # Post carries its own labels array, so the type field cannot decide
+    # membership and the labels test stands alone in the predicate.
+    bundle = mapping_bundle_for("ldbc_lpg")
+    physical = copy.deepcopy(bundle.physical_mapping)
+    physical["entities"]["Post"]["labelsField"] = "labels"
+    q = translate(
+        "MATCH (n) WHERE n.id = 3 RETURN n.type AS type, NOT n:Message AS other, n:Message AS message ORDER BY type",
+        mapping=dataclasses.replace(bundle, physical_mapping=physical),
+    )
+    assert list(db.aql.execute(q.aql, bind_vars=q.bind_vars)) == [
+        {"type": "Person", "other": True, "message": False},
+        {"type": "Post", "other": False, "message": True},
     ], q.aql
