@@ -832,6 +832,21 @@ document to compare `_id`; the bound node's labels and properties are
 tested on it. A relationship over several edge collections keeps the
 traversal (WP-44).
 
+In a MATCH, a single-edge hop that closes a pattern at a node bound earlier
+(LDBC BI18's `(person2)-[:HAS_INTEREST]->(tag)`, where the pattern starts at
+`tag`) is a walk from every row to the bound node. Where the mapping's
+cardinality statistics show the relationship's average degree at the bound end
+no greater than at the open end (`closing_hop.CLOSING_LIST_RATIO`; a tag has
+fewer followers than a person has interests), the walk is preceded by
+`FILTER open._id IN (<the bound node's neighbours over that relationship>)`. The
+list depends only on the bound node, so ArangoDB builds it once per bound node,
+and rows that cannot close are dropped before they walk. An undirected hop
+lists both orientations, and a type-discriminated edge collection tests the
+type. It applies to every MATCH compiler (single part, several parts, after
+`WITH`, `OPTIONAL MATCH`), not to a variable-length, multi-type or self-loop
+hop, and without statistics nothing changes. The rows are the same either way:
+the filter is only a necessary condition (WP-44).
+
 A pattern comprehension (`[(a)-[:R]->(b:L)-[:S]->(c) WHERE … | expr]`)
 matches its whole pattern, as a pattern predicate does: every hop with its
 type, direction, range and properties, and each end node's labels
