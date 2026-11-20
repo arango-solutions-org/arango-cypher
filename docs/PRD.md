@@ -806,6 +806,15 @@ other string (AQL's `TO_BOOL('false')` is true). `toString(null)` is null
 (`TO_STRING(null)` is `""`). An aggregate's argument compiles like any
 expression (`sum(toInteger(x))`, `count(n.x = 1)`).
 
+In a pattern predicate, `exists()` or a pattern comprehension, a
+single-edge hop between a node and a variable bound earlier in the query
+(`NOT (a)-[:KNOWS]-(b)`, `[(t)<-[i:HAS_INTEREST]-(p) | i]`) looks the edge up
+in its edge collection by its two ends (`_from`/`_to`, either way round for
+an undirected hop) instead of traversing every neighbour and reading its
+document to compare `_id`; the bound node's labels and properties are
+tested on it. A relationship over several edge collections keeps the
+traversal (WP-44).
+
 A pattern comprehension (`[(a)-[:R]->(b:L)-[:S]->(c) WHERE … | expr]`)
 matches its whole pattern, as a pattern predicate does: every hop with its
 type, direction, range and properties, and each end node's labels
