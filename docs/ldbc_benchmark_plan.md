@@ -976,6 +976,15 @@ reach `matches_oracle`. **Achieved 2026-10-29.**
     slower, IC12 about a quarter): the `(_from, type)` index has no
     in-memory cache, the edge index has. The mapping holds no fan-out
     statistics to choose by.
+  - *Edges between bound nodes (2026-11).* A pattern predicate or
+    comprehension hop whose two ends were bound traversed every neighbour
+    of one and read its document to compare `_id`, once per row (BI18's
+    `NOT (person1)-[:KNOWS]-(person2)`). It is now an edge-collection
+    lookup by `_from`/`_to`; BI7, BI8, BI17, BI18, IC7 and IC10 change. The
+    bound is `tests/integration/test_bound_hop_edge_lookup_live.py`. Next
+    in this vein: a MATCH hop that closes on a bound node (BI18's
+    `(person2)-[:HAS_INTEREST]->(tag)`), pre-filtered by the bound node's
+    neighbours.
 
 ---
 

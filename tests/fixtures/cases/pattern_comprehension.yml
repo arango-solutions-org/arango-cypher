@@ -7,51 +7,42 @@ cases:
   cypher: 'MATCH (t:Tag {id: 1}), (p:Person) RETURN size([(t)<-[:HAS_TAG]-(m:Message)-[:HAS_CREATOR]->(p) | m])
     AS n'
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@withCollection3, @@withCollection4, @@withCollection5,\
-      \ @@collection2, @@withCollection6, @@collection, @@withCollection7, @@withCollection8\nFOR t IN @@collection\n\
-      \  FILTER (t.id == 1)\n  FOR p IN @@collection2\n    RETURN {n: LENGTH((FOR m, _pc_e IN 1..1 INBOUND t @@pcEdge\
-      \ FILTER (PARSE_IDENTIFIER(m).collection IN @mMembers) FOR _pc_v_1, _pc_e_1 IN 1..1 OUTBOUND m @@pcEdge2 FILTER\
-      \ _pc_e_1._id != _pc_e._id FILTER _pc_v_1._id == p._id RETURN m))}"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@withCollection3, @@withCollection4, @@withCollection5, @@collection2, @@withCollection6, @@collection, @@withCollection7, @@withCollection8
+      FOR t IN @@collection
+        FILTER (t.id == 1)
+        FOR p IN @@collection2
+          RETURN {n: LENGTH((FOR m, _pc_e IN 1..1 INBOUND t @@pcEdge FILTER (PARSE_IDENTIFIER(m).collection IN @mMembers) FOR _pc_e_1 IN @@pcEdge2 FILTER (_pc_e_1._from == m._id AND _pc_e_1._to == p._id) FILTER _pc_e_1._id != _pc_e._id RETURN m))}
     bind_vars:
-      '@collection': tag
-      '@collection2': person
-      '@pcEdge': has_tag
-      mMembers:
-      - post
-      - comment
-      '@pcEdge2': has_creator
-      '@withCollection0': city
-      '@withCollection1': comment
-      '@withCollection2': company
-      '@withCollection3': continent
-      '@withCollection4': country
-      '@withCollection5': forum
-      '@withCollection6': post
-      '@withCollection7': tag_class
-      '@withCollection8': university
+      "@collection": tag
+      "@collection2": person
+      "@pcEdge": has_tag
+      mMembers: [post, comment]
+      "@pcEdge2": has_creator
+      "@withCollection0": city
+      "@withCollection1": comment
+      "@withCollection2": company
+      "@withCollection3": continent
+      "@withCollection4": country
+      "@withCollection5": forum
+      "@withCollection6": post
+      "@withCollection7": tag_class
+      "@withCollection8": university
 - id: C840
   name: a bound end node in a pattern comprehension is matched by _id
   mapping_fixture: ldbc_pg
   extensions_enabled: false
   cypher: 'MATCH (t:Tag {id: 1}), (p:Person) RETURN [(t)<-[i:HAS_INTEREST]-(p) | i] AS ints'
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@withCollection3, @@withCollection4, @@withCollection5,\
-      \ @@collection2, @@withCollection6, @@collection, @@withCollection7, @@withCollection8\nFOR t IN @@collection\n\
-      \  FILTER (t.id == 1)\n  FOR p IN @@collection2\n    RETURN {ints: (FOR _pc_v, i IN 1..1 INBOUND t @@pcEdge\
-      \ FILTER _pc_v._id == p._id RETURN i)}"
+    aql: |
+      FOR t IN @@collection
+        FILTER (t.id == 1)
+        FOR p IN @@collection2
+          RETURN {ints: (FOR i IN @@pcEdge FILTER (i._from == p._id AND i._to == t._id) RETURN i)}
     bind_vars:
-      '@collection': tag
-      '@collection2': person
-      '@pcEdge': has_interest
-      '@withCollection0': city
-      '@withCollection1': comment
-      '@withCollection2': company
-      '@withCollection3': continent
-      '@withCollection4': country
-      '@withCollection5': forum
-      '@withCollection6': post
-      '@withCollection7': tag_class
-      '@withCollection8': university
+      "@collection": tag
+      "@collection2": person
+      "@pcEdge": has_interest
 - id: C841
   name: a named path in a pattern comprehension
   mapping_fixture: pg

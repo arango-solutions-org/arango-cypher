@@ -29,7 +29,11 @@ def test_a_bound_end_node_constrains_the_predicate(layout):
         "MATCH (a:Person)-[:KNOWS]-(m:Person)-[:KNOWS]-(b:Person) WHERE NOT (a)-[:KNOWS]-(b) RETURN a.id, b.id",
         layout,
     )
-    assert "FILTER _pp_v._id == b._id" in aql
+    # Both ends bound: the edge is looked up by them, either way round (ANY).
+    assert (
+        "(_pp_e._from == a._id AND _pp_e._to == b._id) OR (_pp_e._from == b._id AND _pp_e._to == a._id)"
+        in aql
+    )
 
 
 def test_an_anonymous_end_node_only_needs_some_neighbour():
@@ -44,12 +48,14 @@ def test_every_hop_is_compiled(layout):
         layout,
     )
     first = re.search(r"FOR _pp_v, _pp_e IN 1\.\.1 INBOUND a @@(\w+)", aql)
-    second = re.search(r"FOR _pp_v_1, _pp_e_1 IN 1\.\.1 INBOUND _pp_v @@(\w+)", aql)
+    # The last hop ends at the bound b: an edge lookup from b to the Post.
+    second = re.search(
+        r"FOR _pp_e_1 IN @@(\w+) FILTER \(_pp_e_1\._from == b\._id AND _pp_e_1\._to == _pp_v\._id\)", aql
+    )
     assert first and second, aql
     if layout == "pg":
         assert binds[f"@{first.group(1)}"] == "has_creator"
         assert binds[f"@{second.group(1)}"] == "reply_of"
-    assert "_pp_v_1._id == b._id" in aql
     assert "_pp_e_1._id != _pp_e._id" in aql
 
 

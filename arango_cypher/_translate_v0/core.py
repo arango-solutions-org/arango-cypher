@@ -6073,7 +6073,20 @@ def _compile_pattern_hops(
             filters += [f"{loop_e}._id != {other}._id" for other in single_hop_edges]
             single_hop_edges.append(loop_e)
 
-        if target_named and loop_v != target_var:
+        # A single edge between two bound nodes needs no traversal: look the
+        # edge up by its ends, without reading the neighbours' documents to
+        # compare their _id (WP-44; LDBC BI18's NOT (a)-[:KNOWS]-(b) per row).
+        edge_coll = bind_vars[edge_key]
+        bound_end = (
+            single
+            and target_named
+            and loop_v != target_var
+            and hop_path is None
+            and isinstance(edge_coll, str)
+        )
+        if bound_end:
+            loop_v = target_var
+        elif target_named and loop_v != target_var:
             filters.append(f"{loop_v}._id == {target_var}._id")
         labels_ctx = target_node.oC_NodeLabels()
         if labels_ctx is not None:
@@ -6096,8 +6109,11 @@ def _compile_pattern_hops(
                 filters.append(pred)
         filters += _compile_node_pattern_properties(target_node, var=loop_v, bind_vars=bind_vars)
 
-        loop_vars = f"{loop_v}, {loop_e}" + (f", {hop_path}" if hop_path else "")
-        loop = f"FOR {loop_vars} IN {rmin}..{rmax} {direction} {prev} {_aql_collection_ref(edge_key)}"
+        if bound_end:
+            loop = f"FOR {loop_e} IN {_aql_collection_ref(edge_key)} FILTER {_edge_between(loop_e, prev, target_var, direction)}"
+        else:
+            loop_vars = f"{loop_v}, {loop_e}" + (f", {hop_path}" if hop_path else "")
+            loop = f"FOR {loop_vars} IN {rmin}..{rmax} {direction} {prev} {_aql_collection_ref(edge_key)}"
         loop += "".join(f" FILTER {f}" for f in filters)
         if introduced_rel and not single:
             loop += f" LET {rel_var} = {hop_path}.edges"
@@ -6110,6 +6126,17 @@ def _compile_pattern_hops(
         edges = _concat_lists([f"{hp}.edges" for hp in hop_paths])
         loops[-1] += f" LET {path_var} = {{nodes: {nodes}, edges: {edges}}}"
     return head_filters, loops
+
+
+def _edge_between(edge: str, a: str, b: str, direction: str) -> str:
+    """*edge* joins *a* to *b* in *direction* (``ANY``: either way round)."""
+    out = f"{edge}._from == {a}._id AND {edge}._to == {b}._id"
+    back = f"{edge}._from == {b}._id AND {edge}._to == {a}._id"
+    if direction == "OUTBOUND":
+        return f"({out})"
+    if direction == "INBOUND":
+        return f"({back})"
+    return f"(({out}) OR ({back}))"
 
 
 def _concat_lists(parts: list[str]) -> str:
