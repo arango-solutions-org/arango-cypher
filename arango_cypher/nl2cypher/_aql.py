@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -175,6 +175,81 @@ FOR e IN edgeCollection
 """
 
 
+#: Added to the repair message when the server names an unknown function: the model
+#: is almost always reaching for a SQL function AQL does not have.
+_UNKNOWN_FUNCTION_HINT = (
+    " AQL has no SQL functions such as DIVIDE, YEAR, CAST, IIF or CURRENT_TIMESTAMP;"
+    " use a / b, DATE_YEAR(), TO_NUMBER(), cond ? a : b and DATE_NOW()."
+)
+
+
+def _edge_ends(bundle: MappingBundle) -> dict[str, tuple[Any, Any]]:
+    """``relationship type -> (domain label, range label)``, either may be None.
+
+    The analyzer's export keeps an edge's ends only on the conceptual relationship;
+    fall back to them, as schema_acquire's statistics do.
+    """
+    cs_ends = {
+        r.get("type"): (r.get("fromEntity"), r.get("toEntity"))
+        for r in bundle.conceptual_schema.get("relationships") or []
+        if isinstance(r, dict)
+    }
+    rels = bundle.physical_mapping.get("relationships")
+    if not isinstance(rels, dict):
+        return {}
+    ends = {}
+    for rtype, rel in rels.items():
+        if isinstance(rel, dict):
+            cs_from, cs_to = cs_ends.get(rtype, (None, None))
+            ends[rtype] = (rel.get("domain") or cs_from, rel.get("range") or cs_to)
+    return ends
+
+
+def _edge_endpoints(bundle: MappingBundle) -> dict[str, tuple[str, str]]:
+    """``edge collection -> (from collection, to collection)`` where both ends are entities."""
+    pm = bundle.physical_mapping
+    ents = pm.get("entities") or {}
+    return {
+        pm["relationships"][rtype].get("edgeCollectionName", rtype): (
+            ents[d].get("collectionName", d),
+            ents[r].get("collectionName", r),
+        )
+        for rtype, (d, r) in _edge_ends(bundle).items()
+        if d in ents and r in ents
+    }
+
+
+_FOR_IN_RE = re.compile(r"\bFOR\s+([A-Za-z_]\w*)\s+IN\s+([A-Za-z_][\w-]*)\b", re.IGNORECASE)
+_TRAVERSAL_RE = re.compile(
+    r"\bIN\s+(?:\d+(?:\s*\.\.\s*\d+)?\s+)?(OUTBOUND|INBOUND)\s+"
+    r"(?:([A-Za-z_]\w*)(?:\._id)?|[\"']([A-Za-z_][\w-]*)/[^\"']*[\"'])\s+([A-Za-z_][\w-]*)",
+    re.IGNORECASE,
+)
+
+
+def _traversal_direction_problems(aql: str, endpoints: dict[str, tuple[str, str]]) -> list[str]:
+    """Traversals that start at the end of an edge collection their direction walks into.
+
+    Only clear cases: the start is a ``FOR v IN <collection>`` variable or a
+    ``"collection/key"`` literal, and the edge's two ends are different collections.
+    """
+    var_col = {m.group(1): m.group(2) for m in _FOR_IN_RE.finditer(aql)}
+    problems = []
+    for m in _TRAVERSAL_RE.finditer(aql):
+        direction, var, literal_col, edge_col = m.group(1).upper(), m.group(2), m.group(3), m.group(4)
+        from_col, to_col = endpoints.get(edge_col, (None, None))
+        start = literal_col or var_col.get(var or "")
+        if not start or from_col == to_col:
+            continue
+        if (direction, start) in (("OUTBOUND", to_col), ("INBOUND", from_col)):
+            right = "INBOUND" if direction == "OUTBOUND" else "OUTBOUND"
+            problems.append(
+                f"the traversal over '{edge_col}' starts from a '{start}' document with "
+                f"{direction}, but its edges go from '{from_col}' to '{to_col}': use {right}"
+            )
+    return problems
+
+
 def _build_physical_schema_summary(bundle: MappingBundle) -> str:
     """Build a physical-schema description for direct NL→AQL generation.
 
@@ -185,13 +260,7 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
     """
     pm = bundle.physical_mapping
     cs = bundle.conceptual_schema
-    # The analyzer's export keeps an edge's ends only on the conceptual relationship;
-    # fall back to them, as schema_acquire's statistics do.
-    cs_ends = {
-        r.get("type"): (r.get("fromEntity"), r.get("toEntity"))
-        for r in cs.get("relationships") or []
-        if isinstance(r, dict)
-    }
+    ends = _edge_ends(bundle)
     stats = bundle.metadata.get("statistics", {})
     entity_stats = stats.get("entities", {})
     rel_stats = stats.get("relationships", {})
@@ -238,11 +307,9 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
                 continue
             edge_col = rel.get("edgeCollectionName", rtype)
             style = rel.get("style", "DEDICATED_COLLECTION")
-            cs_from, cs_to = cs_ends.get(rtype, (None, None))
-            domain_labels = _end_labels(rel.get("domain")) or _end_labels(cs_from)
-            range_labels = _end_labels(rel.get("range")) or _end_labels(cs_to)
-            domain, domain_col = _render_end(domain_labels, pm)
-            range_, range_col = _render_end(range_labels, pm)
+            domain_end, range_end = ends.get(rtype, (None, None))
+            domain, domain_col = _render_end(_end_labels(domain_end), pm)
+            range_, range_col = _render_end(_end_labels(range_end), pm)
             props = rel.get("properties", {})
             # ``_fromType`` / ``_toType`` are denormalised *node*-type
             # fields on the edge (the kind of the source / target vertex).
@@ -541,6 +608,8 @@ def _call_llm_for_aql(
     tenant_context: TenantContext | None = None,
     tenant_manifest: TenantScopeManifest | None = None,
     cypher: str | None = None,
+    explain: Callable[[str], str | None] | None = None,
+    endpoints: dict[str, tuple[str, str]] | None = None,
 ) -> NL2AqlResult | None:
     """Call the LLM to generate AQL directly, with validation and retry.
 
@@ -590,10 +659,18 @@ def _call_llm_for_aql(
 
             aql, bind_vars = _extract_aql_from_response(content)
 
-            ok, err_msg = _validate_aql_syntax(
-                aql,
-                known_collections=known_collections,
-            )
+            if explain is None:
+                ok, err_msg = _validate_aql_syntax(aql, known_collections=known_collections)
+            else:
+                # The server's parser replaces the regex check, which passes unknown
+                # functions and rejects valid queries such as ``FOR x IN <variable>``.
+                server_error = explain(aql) if aql.strip() else "empty AQL string"
+                ok, err_msg = server_error is None, f"ArangoDB rejected it: {server_error}"
+                if server_error and "unknown function" in server_error.lower():
+                    err_msg += _UNKNOWN_FUNCTION_HINT
+            if ok and endpoints:
+                problems = _traversal_direction_problems(aql, endpoints)
+                ok, err_msg = not problems, "; ".join(problems)
             if ok:
                 # AQL-level tenant postcondition. Manifest-aware:
                 # accept GLOBAL-only queries and denorm-field filters
@@ -695,6 +772,7 @@ def nl_to_aql(
     tenant_context: TenantContext | None = None,
     cypher: str | None = None,
     postconditions: Sequence[Postcondition] | None = None,
+    explain: Callable[[str], str | None] | None = None,
 ) -> NL2AqlResult:
     """Translate a natural language question directly to AQL.
 
@@ -717,6 +795,9 @@ def nl_to_aql(
             AQL instead of answering ``question``. This powers the workbench
             fallback for Cypher that the deterministic transpiler cannot
             handle. ``question`` may still be passed for logging/context.
+        explain: Optional server check: returns the server's error for a candidate
+            query, or ``None`` when it parses and plans. Replaces the regex check,
+            and the model repairs against its message.
     """
     if postconditions:
         # This path generates AQL directly, so there is no Cypher for a
@@ -770,6 +851,8 @@ def nl_to_aql(
         tenant_context=tenant_context,
         tenant_manifest=tenant_manifest,
         cypher=cypher,
+        explain=explain,
+        endpoints=_edge_endpoints(bundle),
     )
     if result and result.aql:
         return result
