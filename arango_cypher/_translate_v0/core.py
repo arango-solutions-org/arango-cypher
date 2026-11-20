@@ -226,7 +226,7 @@ def translate_v0(
         # The variable-length guard reads one edge collection per traversal,
         # so it runs before several types expand into several collections.
         guarded = AqlQuery(
-            text=_guard_varlength_edge_types(empty_varlength_ranges(result.text)),
+            text=_guard_varlength_edge_types(empty_varlength_ranges(result.text), result.bind_vars, resolver),
             bind_vars=result.bind_vars,
             debug=result.debug,
             warnings=result.warnings,

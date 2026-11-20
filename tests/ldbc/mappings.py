@@ -92,6 +92,27 @@ def with_encoding(bundle: MappingBundle, encoding: str) -> MappingBundle:
     return dataclasses.replace(bundle, physical_mapping=physical)
 
 
+#: Statistics per database name: they cost one count per collection and type.
+_STATISTICS: dict[str, dict[str, Any]] = {}
+
+
+def with_statistics(bundle: MappingBundle, db: Any) -> MappingBundle:
+    """*bundle* with the cardinality statistics of *db*, the database it runs on.
+
+    A service's mapping carries them (from the schema analyzer, or
+    ``schema_acquire.compute_statistics``); the fixtures do not, since the
+    numbers belong to a data set. The translator reads them for choices whose
+    cost depends on fan-out (WP-44), so the harness measures and checks the AQL
+    a service would send.
+    """
+    from arango_cypher.schema_acquire import compute_statistics
+
+    stats = _STATISTICS.get(db.name)
+    if stats is None:
+        stats = _STATISTICS[db.name] = compute_statistics(db, bundle)
+    return dataclasses.replace(bundle, metadata={**bundle.metadata, "statistics": stats})
+
+
 def fixture_path(layout: Layout) -> Path:
     return FIXTURE_DIR / f"ldbc_{layout}.export.json"
 

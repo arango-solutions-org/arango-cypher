@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from arango_query_core import AqlQuery, MappingResolver
+
+from .fanout import prefers_type_index
 
 _INDENT = "  "
 _FOR_RE = re.compile(r"^\s*FOR\b")
@@ -131,12 +134,17 @@ def _reindent_aql(text: str) -> str:
 
 
 _VARLEN_TRAVERSAL_RE = re.compile(
-    r"FOR \w+, (?P<e>\w+)(?:, \w+)? IN (?P<min>\d+)\.\.(?P<max>\d+) (?:OUTBOUND|INBOUND|ANY) \S+ @@\w+"
+    r"FOR \w+, (?P<e>\w+)(?:, (?P<p>\w+))? IN (?P<min>\d+)\.\.(?P<max>\d+) "
+    r"(?P<dir>OUTBOUND|INBOUND|ANY) \S+ @@(?P<coll>\w+)"
 )
+#: The path variable the guard adds to a traversal that declares none.
+_GUARD_PATH_VAR = "_vlp"
 _NEXT_FOR_RE = re.compile(r"\bFOR ")
 
 
-def _guard_varlength_edge_types(text: str) -> str:
+def _guard_varlength_edge_types(
+    text: str, bind_vars: dict[str, Any] | None = None, resolver: MappingResolver | None = None
+) -> str:
     """Make a variable-length traversal over a type-discriminated edge
     collection follow only edges of its relationship type.
 
@@ -149,8 +157,25 @@ def _guard_varlength_edge_types(text: str) -> str:
     ``PRUNE r != null AND r[@tf] != @tv``, so expansion stops at the first
     edge of another type (the path that ends in it is still removed by the
     last-edge filter), and for a zero minimum lets ``r == null`` through.
+
+    Where the mapping's statistics say the vertices it expands from have many
+    edges of other types (:func:`fanout.prefers_type_index`), it also adds
+    ``FILTER p.edges[*][@tf] ALL == @tv`` on the traversal's path (declaring
+    one, ``_vlp``, if it has none). The PRUNE keeps a ``(_from, type)`` index
+    out; the path condition lets it serve the hop (WP-44).
     """
     edits: list[tuple[int, int, str]] = []  # (start, end, replacement) on the original text
+    bind_vars = bind_vars or {}
+    used = set(re.findall(r"\w+", text))
+
+    def fresh_path_var() -> str:
+        n, name = 1, _GUARD_PATH_VAR
+        while name in used:
+            n += 1
+            name = f"{_GUARD_PATH_VAR}{n}"
+        used.add(name)
+        return name
+
     for m in _VARLEN_TRAVERSAL_RE.finditer(text):
         if (m.group("min"), m.group("max")) == ("1", "1"):
             continue
@@ -162,6 +187,16 @@ def _guard_varlength_edge_types(text: str) -> str:
             continue  # a dedicated edge collection: every edge has the type
         tf, tv = f.group(1), f.group(2)
         edits.append((m.end(), m.end(), f" PRUNE {edge} != null AND {edge}[@{tf}] != @{tv}"))
+        path = m.group("p")
+        # The shortestPath search tests its path already (shortest_path.py).
+        already = path is not None and f"{path}.edges[*][@{tf}] ALL == @{tv}" in text[m.end() : window_end]
+        if not already and prefers_type_index(
+            resolver, bind_vars.get(tv), bind_vars.get(f"@{m.group('coll')}"), m.group("dir")
+        ):
+            if path is None:
+                path = fresh_path_var()
+                edits.append((m.end("e"), m.end("e"), f", {path}"))
+            edits.append((f.start(), f.start(), f"FILTER {path}.edges[*][@{tf}] ALL == @{tv} "))
         if m.group("min") == "0":
             edits.append((f.start(), f.end(), f"FILTER ({edge} == null OR {edge}[@{tf}] == @{tv})"))
     for start, end, replacement in sorted(edits, reverse=True):

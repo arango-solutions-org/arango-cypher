@@ -604,7 +604,13 @@ access (`n.address.zip`). A parameter that shares its name with a bind
 variable the translation generates (`typeValue`, `@collection`, …) and would
 have its value replaced is refused (`UNSUPPORTED`) rather than silently rebound.
 A variable-length relationship on a type-discriminated (LPG) edge collection
-follows only edges of its type; `*0..` includes the zero-hop row. An open-ended
+follows only edges of its type; `*0..` includes the zero-hop row. Where the
+mapping's cardinality statistics show the vertices it expands from having at
+least 10 times as many edges of other types, in its direction, as of its own
+(`fanout.VCI_FANOUT_RATIO`; KNOWS at a person, not REPLY_OF at a message), the
+traversal also tests its path (`p.edges[*][@typeField] ALL == @typeValue`), so a
+vertex-centric `(_from, type)` index can serve it; without statistics it does
+not. The translation cache keys on the statistics (not their timestamp) (WP-44). An open-ended
 range (`*`, `*2..`) is limited to 10 hops (`_MAX_VLP_DEPTH`), and the
 translation says so in a warning. `coalesce()` is AQL `NOT_NULL()`.
 A `MATCH` after `WITH` may have several comma-separated pattern parts. A

@@ -36,7 +36,7 @@ from tests.ldbc import params as P
 from tests.ldbc.corpus import LDBC_DIR, Operation, load
 from tests.ldbc.datasets import DATASETS
 from tests.ldbc.ledger import LAYOUTS, Cell, _detail, classify_error, load_ledger, write_cells
-from tests.ldbc.mappings import with_encoding
+from tests.ldbc.mappings import with_encoding, with_statistics
 from tests.ldbc.writes import arango_write_delta, delta_difference, dump_arango
 
 EXEC_LEDGER_PATH = LDBC_DIR / "execution_ledger.tsv"
@@ -78,7 +78,9 @@ def run_cell(
     if snapshot["sha256"] != op.sha256:
         return "crash", f"stale snapshot: recorded for {snapshot['sha256'][:12]}, query is {op.sha256[:12]}"
 
-    mapping = with_encoding(mapping_bundle_for(f"ldbc_{layout}"), DATASETS[dataset_for(op)].encoding)
+    mapping = with_statistics(
+        with_encoding(mapping_bundle_for(f"ldbc_{layout}"), DATASETS[dataset_for(op)].encoding), db
+    )
     for i, b in enumerate(snapshot["bindings"]):
         values = {k: P.to_arango(v) for k, v in b["binding"].items()}
         try:
