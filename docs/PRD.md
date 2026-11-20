@@ -428,7 +428,11 @@ with the detector retirement noted above.)*
 
 `compute_statistics(db, bundle)` stores per-collection counts, per-type label
 counts, avg fan-out/fan-in, cardinality pattern (`1:1`/`1:N`/`N:1`/`N:M`), and
-selectivity in `MappingBundle.metadata["statistics"]`. These feed traversal
+selectivity in `MappingBundle.metadata["statistics"]`. A relationship endpoint
+that lists several labels (`domain: ["Post", "Comment"]`) counts as the sum of
+their counts; a `MULTI_LABEL` supertype counts the documents whose labels array
+lists it, and a `UNION` supertype the sum of its members. Before, a list-valued
+endpoint raised `TypeError` and the bundle had no statistics at all. These feed traversal
 direction, multi-part MATCH ordering, and filter placement in the transpiler, and
 enrich the physical schema summary for the NL→AQL path.
 

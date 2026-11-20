@@ -31,12 +31,23 @@ def server_error(cls: type, code: int, num: int, message: str) -> Exception:
 
 
 class FakeCursor:
+    """Mirrors ``arango.cursor.Cursor``: an iterator (``__iter__`` returns
+    itself, ``__next__``/``next()`` hand out the rows), so ``next(cursor)``
+    works as it does on a real cursor."""
+
     def __init__(self, rows: list[Any]):
         self._rows = rows
+        self._it = iter(rows)
         self.closed = False
 
-    def __iter__(self) -> Iterator[Any]:
-        return iter(self._rows)
+    def __iter__(self) -> FakeCursor:
+        return self
+
+    def __next__(self) -> Any:
+        return next(self._it)
+
+    def next(self) -> Any:
+        return next(self._it)
 
     def close(self, ignore_missing: bool = False) -> bool | None:
         self.closed = True
