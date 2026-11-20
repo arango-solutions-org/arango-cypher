@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from arango_query_core import (
     CoreError,
     MappingBundle,
+    MappingResolver,
     MappingSource,
     is_valid_collection_name,
 )
@@ -2028,7 +2029,8 @@ def compute_statistics(
     rels = pm.get("relationships", {}) if isinstance(pm.get("relationships"), dict) else {}
 
     cs_rels = cs.get("relationships", []) if isinstance(cs.get("relationships"), list) else []
-    cs_rel_lookup: dict[str, tuple[str, str]] = {}
+    # Each endpoint is a label or, for a polymorphic relationship, a list of them.
+    cs_rel_lookup: dict[str, tuple[Any, Any]] = {}
     for cr in cs_rels:
         if isinstance(cr, dict):
             cs_rel_lookup[cr.get("type", "")] = (
@@ -2068,6 +2070,19 @@ def compute_statistics(
         style = emap.get("style", "COLLECTION")
         type_field = emap.get("typeField")
         type_value = emap.get("typeValue")
+        if style == "UNION":
+            continue  # its members' counts, summed below
+        if col_name_safe and style == "MULTI_LABEL" and emap.get("labelsField"):
+            # A supertype in a shared collection: the documents whose labels array lists it.
+            try:
+                cursor = db.aql.execute(
+                    f"FOR d IN `{col_name}` FILTER @lv IN d[@lf] COLLECT WITH COUNT INTO c RETURN c",
+                    bind_vars={"lv": emap.get("labelValue") or label, "lf": emap["labelsField"]},
+                )
+                entity_counts[label] = {"estimated_count": next(sync(cursor), 0)}
+            except Exception:
+                entity_counts[label] = {"estimated_count": col_counts.get(col_name, {}).get("count", 0)}
+            continue
         if col_name_safe and style in ("LABEL", "GENERIC_WITH_TYPE") and type_field and type_value:
             try:
                 aql = (
@@ -2081,6 +2096,17 @@ def compute_statistics(
             entity_count = col_counts.get(col_name, {}).get("count", 0)
 
         entity_counts[label] = {"estimated_count": entity_count}
+
+    # A UNION supertype has no collection of its own: it is every document of its members.
+    for label, emap in entities.items():
+        if isinstance(emap, dict) and emap.get("style") == "UNION":
+            try:
+                members = MappingResolver(bundle).supertype_members(label)
+            except CoreError:
+                members = []
+            entity_counts[label] = {
+                "estimated_count": sum(entity_counts.get(m, {}).get("estimated_count", 0) for m in members)
+            }
 
     for rtype, rmap in rels.items():
         if not isinstance(rmap, dict):
@@ -2126,8 +2152,8 @@ def compute_statistics(
                 domain_label = cs_from
             if not range_label:
                 range_label = cs_to
-        source_count = entity_counts.get(domain_label, {}).get("estimated_count", 0) if domain_label else 0
-        target_count = entity_counts.get(range_label, {}).get("estimated_count", 0) if range_label else 0
+        source_count = _endpoint_count(domain_label, entity_counts)
+        target_count = _endpoint_count(range_label, entity_counts)
 
         avg_out = (edge_count / source_count) if source_count > 0 else 0.0
         avg_in = (edge_count / target_count) if target_count > 0 else 0.0
@@ -2155,6 +2181,18 @@ def compute_statistics(
         "entities": entity_counts,
         "relationships": rel_stats,
     }
+
+
+def _endpoint_count(endpoint: Any, entity_counts: dict[str, dict[str, Any]]) -> int:
+    """The documents a relationship endpoint stands for: the sum over its labels.
+
+    A polymorphic relationship lists several (``domain: ["Post", "Comment"]``);
+    looking that list up as a dict key raised ``TypeError`` and lost the
+    statistics for the whole bundle.
+    """
+    labels = [endpoint] if isinstance(endpoint, str) else endpoint if isinstance(endpoint, list) else []
+    distinct = dict.fromkeys(lab for lab in labels if isinstance(lab, str) and lab)
+    return sum(int(entity_counts.get(lab, {}).get("estimated_count", 0)) for lab in distinct)
 
 
 def _classify_cardinality(avg_out: float, avg_in: float) -> str:
