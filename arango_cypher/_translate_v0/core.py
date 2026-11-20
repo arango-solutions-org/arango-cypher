@@ -1450,16 +1450,11 @@ def _translate_match_body(
             rel_range=rel_range,
         )
 
-        if direction == "ANY" and rel_type:
-            stats_dir = resolver.preferred_traversal_direction(rel_type)
-            if stats_dir:
-                direction = stats_dir
-
         # An unlabeled endpoint of a typed relationship can be resolved from the
         # relationship's domain/range (e.g. (m:Movie)<-[:REVIEWED]-() → Person),
         # so it is treated as if it carried that label. Use the *pattern*
-        # direction (not the stats-adjusted one) so an undirected -[:REL]- stays
-        # ambiguous and falls back to single-collection inference.
+        # direction (not the self-loop-adjusted one) so an undirected -[:REL]-
+        # stays ambiguous and falls back to single-collection inference.
         if not v_labels and not v_bound and rel_type:
             _inferred_v = resolver.infer_endpoint_label(rel_type, _relationship_direction(rel_pat))
             if _inferred_v:
@@ -3393,11 +3388,6 @@ def _compile_match_pipeline(
             back_to_start=v_bound and v_var == current_var,
             rel_range=rel_range,
         )
-
-        if direction == "ANY" and rel_type:
-            stats_dir = resolver.preferred_traversal_direction(rel_type)
-            if stats_dir:
-                direction = stats_dir
 
         # Resolve an unlabeled endpoint of a typed relationship from the
         # relationship's domain/range (e.g. (m:Movie)<-[:REVIEWED]-() → Person).

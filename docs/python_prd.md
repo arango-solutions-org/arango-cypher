@@ -2022,7 +2022,7 @@ Statistics are stored in `MappingBundle.metadata["statistics"]`:
 - **Storage**: Populated into `MappingBundle.metadata["statistics"]` during `get_mapping()` or via `GET /schema/statistics` endpoint.
 - **MappingResolver**: New methods `estimated_count(label)`, `relationship_stats(rel_type)`, `preferred_traversal_direction(rel_type)`.
 - **NL→AQL integration**: `_build_physical_schema_summary()` reads statistics from the bundle and appends count/degree annotations to each collection/edge line.
-- **Transpiler integration**: `translate_v0.py` consults resolver statistics for undirected pattern direction choice and multi-part ordering.
+- **Transpiler integration**: the translator reads `estimated_count()` to pick the most selective of a node's labels and `relationship_stats()` for the LPG variable-length index choice (`_translate_v0/fanout.py`). It does not use `preferred_traversal_direction()`: an undirected relationship matches both orientations, and narrowing it to the direction the statistics favour (as the translator did until 2026-11) dropped the other half of the matches.
 - **API**: `GET /schema/statistics` endpoint returns computed statistics for the connected database.
 
 ## 15) Packaging and deployment to the Arango Platform
