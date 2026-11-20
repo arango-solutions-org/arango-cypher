@@ -970,12 +970,16 @@ reach `matches_oracle`. **Achieved 2026-10-29.**
     (`p.edges[*][@tf] ALL == @tv`), which the index serves (IC1, IC13).
     The bound is the index entries read, in
     `tests/integration/test_shortest_path_live.py`.
-  - *Not done: the same path condition on every LPG variable-length hop.*
-    It helps where vertices have many edges of other types (IC1, IC9,
-    IC11) and hurts where they have few (BI12's `REPLY_OF*0..` about 2.5×
-    slower, IC12 about a quarter): the `(_from, type)` index has no
-    in-memory cache, the edge index has. The mapping holds no fan-out
-    statistics to choose by.
+  - *LPG variable-length hops by fan-out (2026-11).* The same path condition on
+    every LPG variable-length hop helped where vertices have many edges of other
+    types (IC1, IC9, IC11) and hurt where they have few (BI12's `REPLY_OF*0..`,
+    IC12): the `(_from, type)` index has no
+    in-memory cache, the edge index has. The mapping's statistics now decide
+    (`_translate_v0/fanout.py`, ratio ≥ 10 of other-type to own degree in the
+    hop's direction): KNOWS hops get it (IC3, IC5, IC6, IC9, IC10, IC11, BI18),
+    REPLY_OF and outbound IS_SUBCLASS_OF do not. The statistics block was missing
+    for any mapping with a polymorphic relationship until analyzer #56 and #106;
+    the harness attaches the loaded database's (`mappings.with_statistics`).
   - *Edges between bound nodes (2026-11).* A pattern predicate or
     comprehension hop whose two ends were bound traversed every neighbour
     of one and read its document to compare `_id`, once per row (BI18's

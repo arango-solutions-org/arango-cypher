@@ -33,6 +33,13 @@ def _cache_key(
     h.update(cypher.encode())
     h.update(json.dumps(mapping.physical_mapping, sort_keys=True, default=str).encode())
     h.update(json.dumps(mapping.conceptual_schema, sort_keys=True, default=str).encode())
+    # Cardinality statistics choose between AQL shapes (traversal direction, the
+    # LPG type index): a refresh with other numbers is another translation. Their
+    # timestamp is not, so recomputing the same numbers still hits the cache.
+    stats = (mapping.metadata or {}).get("statistics")
+    if isinstance(stats, dict):
+        stats = {k: v for k, v in stats.items() if k != "computed_at"}
+    h.update(json.dumps(stats, sort_keys=True, default=str).encode())
     if params:
         h.update(json.dumps(params, sort_keys=True, default=str).encode())
     h.update(str(extensions.enabled if extensions else False).encode())

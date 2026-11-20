@@ -57,7 +57,7 @@ from tests.ldbc import params as P
 from tests.ldbc.corpus import Operation
 from tests.ldbc.datasets import DATASETS
 from tests.ldbc.ledger import LAYOUTS
-from tests.ldbc.mappings import fixture_path, with_encoding
+from tests.ldbc.mappings import fixture_path, with_encoding, with_statistics
 
 SCHEMA_VERSION = 1
 #: ArangoDB kills a query past its ``max_runtime`` with this error number.
@@ -320,7 +320,10 @@ def run(
             continue
         dataset = datasets[op.workload]
         for layout in settings.layouts:
-            mapping = with_encoding(mapping_bundle_for(f"ldbc_{layout}"), DATASETS[dataset].encoding)
+            mapping = with_statistics(
+                with_encoding(mapping_bundle_for(f"ldbc_{layout}"), DATASETS[dataset].encoding),
+                databases[(dataset, layout)],
+            )
             op_bindings = bindings.get(op.id) or []
             if not op_bindings:
                 cells.append({"operation": op.id, "layout": layout, "outcome": "no_bindings"})
