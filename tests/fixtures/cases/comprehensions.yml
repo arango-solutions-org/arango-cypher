@@ -41,9 +41,12 @@ cases:
 
     '
   expected:
-    aql: "FOR p IN @@collection\n  FILTER (LENGTH((FOR x IN [1,2,3] RETURN x)) != null AND LENGTH((FOR x IN [1,2,3] RETURN x)) > 0)\n  RETURN p.name\n"
+    aql: |
+      FOR p IN @@collection
+        FILTER (LENGTH((FOR x IN [1,2,3] RETURN x)) > 0)
+        RETURN p.name
     bind_vars:
-      '@collection': persons
+      "@collection": persons
 - id: C504
   name: List comprehension with range function
   mapping_fixture: movies_pg

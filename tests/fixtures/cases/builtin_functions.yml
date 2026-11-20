@@ -74,9 +74,12 @@ cases:
 
     '
   expected:
-    aql: "FOR n IN @@collection\n  FILTER (LENGTH(n.friends) != null AND LENGTH(n.friends) > 3)\n  RETURN n\n"
+    aql: |
+      FOR n IN @@collection
+        FILTER (LENGTH(n.friends) > 3)
+        RETURN n
     bind_vars:
-      '@collection': persons
+      "@collection": persons
 - id: C242
   name: return toFloat function
   mapping_fixture: pg
