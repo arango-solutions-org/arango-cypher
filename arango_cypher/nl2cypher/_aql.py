@@ -185,6 +185,13 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
     """
     pm = bundle.physical_mapping
     cs = bundle.conceptual_schema
+    # The analyzer's export keeps an edge's ends only on the conceptual relationship;
+    # fall back to them, as schema_acquire's statistics do.
+    cs_ends = {
+        r.get("type"): (r.get("fromEntity"), r.get("toEntity"))
+        for r in cs.get("relationships") or []
+        if isinstance(r, dict)
+    }
     stats = bundle.metadata.get("statistics", {})
     entity_stats = stats.get("entities", {})
     rel_stats = stats.get("relationships", {})
@@ -231,8 +238,9 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
                 continue
             edge_col = rel.get("edgeCollectionName", rtype)
             style = rel.get("style", "DEDICATED_COLLECTION")
-            domain = rel.get("domain", "?")
-            range_ = rel.get("range", "?")
+            cs_from, cs_to = cs_ends.get(rtype, (None, None))
+            domain = rel.get("domain") or cs_from or "?"
+            range_ = rel.get("range") or cs_to or "?"
             props = rel.get("properties", {})
             # ``_fromType`` / ``_toType`` are denormalised *node*-type
             # fields on the edge (the kind of the source / target vertex).
@@ -303,10 +311,11 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
     if entity_stats or rel_stats:
         lines.append("\nQuery optimization hints:")
         lines.append("  - Start traversals from the SMALLER collection when filtering by a property.")
+        # Direction comes from _from/_to, never cardinality (a child -> parent edge is N:1).
         lines.append(
-            "  - For 1:N relationships, traverse OUTBOUND from the '1' side to avoid scanning the 'N' side."
+            "  - Direction follows each edge's Connects line A -> B: OUTBOUND from an A "
+            "document, INBOUND from a B document, whatever the cardinality."
         )
-        lines.append("  - For N:1 relationships, traverse INBOUND from the '1' side.")
         lines.append("  - Use LIMIT early when only a few results are needed from large collections.")
 
     if flagged_entity_props:
