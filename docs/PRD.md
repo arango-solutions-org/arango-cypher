@@ -432,9 +432,13 @@ selectivity in `MappingBundle.metadata["statistics"]`. A relationship endpoint
 that lists several labels (`domain: ["Post", "Comment"]`) counts as the sum of
 their counts; a `MULTI_LABEL` supertype counts the documents whose labels array
 lists it, and a `UNION` supertype the sum of its members. Before, a list-valued
-endpoint raised `TypeError` and the bundle had no statistics at all. These feed traversal
-direction, multi-part MATCH ordering, and filter placement in the transpiler, and
-enrich the physical schema summary for the NL→AQL path.
+endpoint raised `TypeError` and the bundle had no statistics at all. In the
+transpiler they pick the most selective of a node's labels and decide whether an
+LPG variable-length hop uses the type index (§8.2); they also enrich the physical
+schema summary for the NL→AQL path. They never give an undirected relationship a
+direction: `-[:R]-` matches both orientations. Until 2026-11 a relationship whose
+average fan-out and fan-in differed more than five times was narrowed to one of
+them, and a person's messages reached over `-[:HAS_CREATOR]-` came back empty.
 
 ### 7.3 Change detection & two-tier cache
 
