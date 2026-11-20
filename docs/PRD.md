@@ -781,7 +781,10 @@ it by. The service and CLI do not expose the option.
 Arithmetic follows Cypher, where AQL's operators are numeric only and read
 null as 0 (`null + 1` is 1, `'a' + 'b'` is 0). An arithmetic expression with
 a null operand is null; nested arithmetic shares one null guard over its
-operands, and a function call keeps its own (`coalesce(n.a - 1, 0)`). `+`
+operands, and a function call keeps its own (`coalesce(n.a - 1, 0)`). An
+operand that cannot be null (a literal, a whole AQL `LENGTH()` call such as a
+`size()` of a pattern comprehension) is left out of the guard, which would
+otherwise evaluate it a second time (WP-44, LDBC BI8). `+`
 adds numbers, concatenates a string with a string or number (`'a' + 1` is
 `'a1'`, evaluated left to right so `1 + 2 + 'a'` is `'3a'`), concatenates two
 lists, and otherwise adds an element to a list; a null operand makes the result

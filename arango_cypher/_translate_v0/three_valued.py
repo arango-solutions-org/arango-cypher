@@ -57,16 +57,28 @@ _AQL_COMPARISON = {"=": "==", "<>": "!=", "<": "<", "<=": "<=", ">": ">", ">=": 
 _NEGATED_COMPARISON = {"==": "!=", "!=": "==", "<": ">=", "<=": ">", ">": "<=", ">=": "<"}
 
 
+#: AQL functions that return a value for every input, null included
+#: (``LENGTH(null)`` is 0). A guard on one of their calls never fires, and
+#: repeating the call in the guard repeats its work: arithmetic over
+#: ``size([pattern comprehension])`` evaluated each subquery twice (LDBC BI8).
+_NEVER_NULL_FUNCTIONS = ("LENGTH",)
+
+
 def _is_obvious_non_null(expr: str) -> bool:
     """True when *expr* is a textual form that AQL evaluates as non-null.
 
     Used to suppress redundant ``!= null`` guards on comparison operands
-    that are clearly numeric/string/boolean literals, or list or map
-    literals (``[1, x]``, ``{a: 1}``).
+    that are clearly numeric/string/boolean literals, list or map literals
+    (``[1, x]``, ``{a: 1}``), or a whole call of a function that never
+    returns null (``_NEVER_NULL_FUNCTIONS``).
     """
     if _OBVIOUS_NON_NULL_RE.match(expr):
         return True
     text = expr.strip()
+    for fn in _NEVER_NULL_FUNCTIONS:
+        # A whole call: the parenthesis after the name closes at the end.
+        if text.startswith(f"{fn}(") and _closing_bracket(text[len(fn) :]) == len(text) - len(fn) - 1:
+            return True
     if len(text) < 2 or (text[0], text[-1]) not in {("[", "]"), ("{", "}")}:
         return False
     return _closing_bracket(text) == len(text) - 1

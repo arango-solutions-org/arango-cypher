@@ -27,7 +27,8 @@ class TestOrderByAlias:
             "RETURN m.title, size(r.roles) AS role_count ORDER BY role_count DESC LIMIT 3",
             mapping=pg,
         )
-        assert "SORT (LENGTH(r.roles) == null) DESC, LENGTH(r.roles) DESC" in out.aql
+        # LENGTH() is never null, so no null-placement key precedes it.
+        assert "SORT LENGTH(r.roles) DESC" in out.aql
         assert "role_count ==" not in out.aql and "SORT role_count" not in out.aql
 
     def test_order_by_renamed_property_alias(self, pg):
@@ -46,7 +47,7 @@ class TestOrderByAlias:
             "ORDER BY tagline_length DESC LIMIT 1",
             mapping=pg,
         )
-        assert "SORT (LENGTH(movie.tagline) == null) DESC, LENGTH(movie.tagline) DESC" in out.aql
+        assert "SORT LENGTH(movie.tagline) DESC" in out.aql
 
     def test_order_by_plain_variable_unaffected(self, pg):
         # No alias involved → ORDER BY on a live var must be untouched.

@@ -53,13 +53,17 @@ cases:
 
     '
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection\nFOR u IN @@collection\n  FILTER (LENGTH(FOR m, _sq_e IN 1..1 OUTBOUND u @@sqEdge RETURN 1) != null AND LENGTH(FOR m, _sq_e IN 1..1 OUTBOUND u @@sqEdge RETURN 1) > 5)\n  RETURN u.name\n"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection
+      FOR u IN @@collection
+        FILTER (LENGTH(FOR m, _sq_e IN 1..1 OUTBOUND u @@sqEdge RETURN 1) > 5)
+        RETURN u.name
     bind_vars:
-      '@collection': users
-      '@sqEdge': follows
-      '@withCollection0': docs
-      '@withCollection1': persons
-      '@withCollection2': places
+      "@collection": users
+      "@sqEdge": follows
+      "@withCollection0": docs
+      "@withCollection1": persons
+      "@withCollection2": places
 - id: C344
   name: foreach with set
   mapping_fixture: pg

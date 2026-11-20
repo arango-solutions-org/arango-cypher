@@ -161,3 +161,32 @@ def test_compile_addition_dispatches_on_two_unknown_types() -> None:
 )
 def test_is_obvious_non_null_recognises_list_and_map_literals(expr: str, expected: bool) -> None:
     assert _is_obvious_non_null(expr) is expected
+
+
+@pytest.mark.parametrize(
+    ("expr", "expected"),
+    [
+        ("LENGTH(x)", True),
+        ("LENGTH((FOR a IN b RETURN a))", True),
+        ('LENGTH(")")', True),  # a parenthesis in a string does not close the call
+        ("LENGTH(x) + y", False),
+        ("LENGTH(a) == LENGTH(b)", False),
+        ("LENGTHS(x)", False),
+    ],
+)
+def test_is_obvious_non_null_recognises_a_whole_length_call(expr: str, expected: bool) -> None:
+    # LENGTH(null) is 0: a guard on the call never fires.
+    assert _is_obvious_non_null(expr) is expected
+
+
+def test_arithmetic_over_size_evaluates_each_comprehension_once() -> None:
+    """The null guard repeated every operand, so each subquery ran twice (LDBC BI8)."""
+    from arango_cypher import translate
+
+    aql = translate(
+        "MATCH (t:Tag {id: 1}), (p:Person {id: 2}) "
+        "RETURN 100 * size([(t)<-[i:HAS_INTEREST]-(p) | i]) + size([(p)-[:KNOWS]-(f) | f]) AS s",
+        mapping=mapping_bundle_for("ldbc_pg"),
+    ).aql
+    assert aql.count("FOR i IN") == 1 and aql.count("FOR f, ") == 1, aql
+    assert "== null" not in aql.splitlines()[-1], aql
