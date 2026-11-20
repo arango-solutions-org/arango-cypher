@@ -985,10 +985,17 @@ reach `matches_oracle`. **Achieved 2026-10-29.**
     of one and read its document to compare `_id`, once per row (BI18's
     `NOT (person1)-[:KNOWS]-(person2)`). It is now an edge-collection
     lookup by `_from`/`_to`; BI7, BI8, BI17, BI18, IC7 and IC10 change. The
-    bound is `tests/integration/test_bound_hop_edge_lookup_live.py`. Next
-    in this vein: a MATCH hop that closes on a bound node (BI18's
-    `(person2)-[:HAS_INTEREST]->(tag)`), pre-filtered by the bound node's
-    neighbours.
+    bound is `tests/integration/test_bound_hop_edge_lookup_live.py`.
+  - *Hops that close at a bound node (2026-11).* A MATCH hop ending at a node
+    bound earlier (BI18's `(person2)-[:HAS_INTEREST]->(tag)`, BI14's
+    `(person1)-[:KNOWS]-(person2)`) walked from every row. Where the
+    statistics show the bound end's average degree no greater than the open
+    end's, the walk is preceded by a filter on the bound node's neighbour list,
+    which ArangoDB builds once per bound node (`_translate_v0/closing_hop.py`).
+    IS7, BI11, BI14, BI17 and BI18 change on both layouts, with the same rows.
+    Equal degrees
+    (undirected KNOWS) are included: they paid in BI11 and BI14, and cost a
+    little in IS7, where one row reaches the hop per bound person.
 
 ---
 

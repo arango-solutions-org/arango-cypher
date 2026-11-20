@@ -48,6 +48,7 @@ from .calls import (
     _translate_standalone_in_query_call,
     in_query_call_lines,
 )
+from .closing_hop import closing_hop_prefilter
 from .columns import _active_cypher_column_names, object_key, written_column
 from .const_eval import _const_env, aql_number_literal, bind_with_constants, try_fold
 from .conversions import compile_to_boolean, compile_to_float, compile_to_integer, compile_to_string
@@ -667,6 +668,20 @@ def _emit_single_hop(
     vci_opts = _build_vci_options([h], resolver)
     if vci_opts:
         trav_line += f" {vci_opts}"
+    if h.v_bound:
+        closing = closing_hop_prefilter(
+            resolver=resolver,
+            open_var=current_var,
+            bound_var=h.v_var,
+            rel_type=h.rel_type,
+            r_map=h.r_map,
+            edge_key=h.edge_key,
+            direction=h.direction,
+            rel_range=h.rel_range,
+            bind_vars=bind_vars,
+        )
+        if closing is not None:
+            lines.append(f"  FILTER {closing}")
     lines.append(trav_line)
 
     if h.v_bound:
@@ -2794,6 +2809,20 @@ def _compile_match_multi_parts_from_parts(
                 path_nodes.append(f"SLICE({hop_path}.vertices, 1)")
                 path_edges.append(f"{hop_path}.edges")
             trav_vars = f"{v_trav}, {rel_var}, {hop_path}" if hop_path else f"{v_trav}, {rel_var}"
+            if v_bound:
+                closing = closing_hop_prefilter(
+                    resolver=resolver,
+                    open_var=current_u,
+                    bound_var=v_var,
+                    rel_type=rel_type,
+                    r_map=r_map,
+                    edge_key=edge_key,
+                    direction=direction,
+                    rel_range=rel_range,
+                    bind_vars=bind_vars,
+                )
+                if closing is not None:
+                    add_filter(closing)
             add_for(
                 f"FOR {trav_vars} IN {rmin}..{rmax} {direction} {current_u} {_aql_collection_ref(edge_key)}"
             )
@@ -3131,6 +3160,20 @@ def _compile_bound_part(
         else:
             node_segments.append(f"[{v_aql}]")
             edge_segments.append(f"[{r_aql}]")
+        if v_is_backref and current_aql is not None:
+            closing = closing_hop_prefilter(
+                resolver=resolver,
+                open_var=current_aql,
+                bound_var=out_env[v_cy],
+                rel_type=rel_type,
+                r_map=r_map,
+                edge_key=edge_key,
+                direction=direction,
+                rel_range=rel_range,
+                bind_vars=bind_vars,
+            )
+            if closing is not None:
+                lines.append(f"    FILTER {closing}")
         lines.append(
             f"  FOR {trav_vars} IN {rmin}..{rmax} {direction} {current_aql} {_aql_collection_ref(edge_key)}"
         )
@@ -3427,6 +3470,20 @@ def _compile_match_pipeline(
         rmin, rmax = rel_range
         if rmin != rmax:
             has_varlen = True
+        if v_bound:
+            closing = closing_hop_prefilter(
+                resolver=resolver,
+                open_var=current_var,
+                bound_var=v_var,
+                rel_type=rel_type,
+                r_map=r_map,
+                edge_key=edge_key,
+                direction=direction,
+                rel_range=rel_range,
+                bind_vars=bind_vars,
+            )
+            if closing is not None:
+                lines.append(f"  FILTER {closing}")
         lines.append(
             f"  FOR {v_trav}, {rel_var} IN {rmin}..{rmax} {direction} {current_var} {_aql_collection_ref(edge_key)}"
         )

@@ -1,0 +1,110 @@
+version: 1
+cases:
+  - id: C1419
+    name: a hop closing at a bound node checks its neighbours first (PG, LDBC BI18, SF0.1 statistics)
+    mapping_fixture: ldbc_pg
+    extensions_enabled: false
+    cypher: |
+      MATCH (tag:Tag {name: $tag})<-[:HAS_INTEREST]-(person1:Person)-[:KNOWS]-(mutualFriend:Person)-[:KNOWS]-(person2:Person)-[:HAS_INTEREST]->(tag)
+      WHERE person1 <> person2
+      RETURN person1.id AS person1Id, person2.id AS person2Id, count(DISTINCT mutualFriend) AS mutualFriendCount
+    params:
+      tag: Frank_Sinatra
+    expected:
+      aql: |
+        WITH @@withCollection0, @@withCollection1, @@withCollection2, @@withCollection3, @@withCollection4, @@withCollection5, @@withCollection6, @@withCollection7, @@uCollection, @@withCollection8, @@withCollection9
+        FOR tag IN @@uCollection
+          FILTER (@tag != null AND tag.name == @tag)
+          FOR person1, r IN 1..1 INBOUND tag @@edgeCollection
+            FOR person2, r_2, _path IN 2..2 ANY person1 @@edgeCollection2
+              LET mutualFriend = _path.vertices[1]
+              FILTER person2._id IN (FOR _cl_e IN @@edgeCollection4 FILTER _cl_e._to == tag._id RETURN _cl_e._from)
+              FOR tag_m, r_3 IN 1..1 OUTBOUND person2 @@edgeCollection4
+                FILTER tag_m._id == tag._id
+                FILTER r._id != r_3._id
+                FILTER _path.edges[0]._id != r._id
+                FILTER r_2._id != r._id
+                FILTER _path.edges[0]._id != r_3._id
+                FILTER r_2._id != r_3._id
+                FILTER (person1 != null AND person2 != null AND person1 != person2)
+                COLLECT person1Id = person1.id, person2Id = person2.id AGGREGATE _mutualFriendCount_distinct = COUNT_DISTINCT(mutualFriend), _mutualFriendCount_has_null = MAX((mutualFriend) == null ? 1 : 0)
+                LET mutualFriendCount = _mutualFriendCount_distinct - NOT_NULL(_mutualFriendCount_has_null, 0)
+                RETURN {person1Id: person1Id, person2Id: person2Id, mutualFriendCount: mutualFriendCount}
+      bind_vars:
+        tag: Frank_Sinatra
+        "@uCollection": tag
+        "@edgeCollection": has_interest
+        "@edgeCollection2": knows
+        "@edgeCollection4": has_interest
+        "@withCollection0": city
+        "@withCollection1": comment
+        "@withCollection2": company
+        "@withCollection3": continent
+        "@withCollection4": country
+        "@withCollection5": forum
+        "@withCollection6": person
+        "@withCollection7": post
+        "@withCollection8": tag_class
+        "@withCollection9": university
+  - id: C1420
+    name: a hop closing at a bound node checks its neighbours of the type first (LPG, LDBC BI18, SF0.1 statistics)
+    mapping_fixture: ldbc_lpg
+    extensions_enabled: false
+    cypher: |
+      MATCH (tag:Tag {name: $tag})<-[:HAS_INTEREST]-(person1:Person)-[:KNOWS]-(mutualFriend:Person)-[:KNOWS]-(person2:Person)-[:HAS_INTEREST]->(tag)
+      WHERE person1 <> person2
+      RETURN person1.id AS person1Id, person2.id AS person2Id, count(DISTINCT mutualFriend) AS mutualFriendCount
+    params:
+      tag: Frank_Sinatra
+    expected:
+      aql: |
+        WITH @@uCollection
+        FOR tag IN @@uCollection
+          FILTER tag[@uTypeField] == @uTypeValue
+          FILTER (@tag != null AND tag.name == @tag)
+          FOR person1, r IN 1..1 INBOUND tag @@edgeCollection OPTIONS {indexHint: {"edges": {"inbound": {"base": "idx_edges_to_type"}}}}
+            FILTER person1[@vTypeField] == @vTypeValue
+            FILTER r[@relTypeField] == @relTypeValue
+            FOR person2, r_2, _path IN 2..2 ANY person1 @@edgeCollection2 PRUNE r_2 != null AND r_2[@relTypeField3] != @relTypeValue3 OPTIONS {indexHint: {"edges": {"outbound": {"base": "idx_edges_from_type"}}}}
+              LET mutualFriend = _path.vertices[1]
+              FILTER mutualFriend[@vTypeField2] == @vTypeValue2
+              FILTER _path.edges[0][@relTypeField2] == @relTypeValue2
+              FILTER person2[@vTypeField3] == @vTypeValue3
+              FILTER _path.edges[*][@relTypeField3] ALL == @relTypeValue3 FILTER r_2[@relTypeField3] == @relTypeValue3
+              FILTER person2._id IN (FOR _cl_e IN @@edgeCollection4 FILTER _cl_e._to == tag._id FILTER _cl_e[@clTypeField] == @clTypeValue RETURN _cl_e._from)
+              FOR tag_m, r_3 IN 1..1 OUTBOUND person2 @@edgeCollection4 OPTIONS {indexHint: {"edges": {"outbound": {"base": "idx_edges_from_type"}}}}
+                FILTER tag_m._id == tag._id
+                FILTER r_3[@relTypeField4] == @relTypeValue4
+                FILTER r._id != r_3._id
+                FILTER _path.edges[0]._id != r._id
+                FILTER r_2._id != r._id
+                FILTER _path.edges[0]._id != r_3._id
+                FILTER r_2._id != r_3._id
+                FILTER (person1 != null AND person2 != null AND person1 != person2)
+                COLLECT person1Id = person1.id, person2Id = person2.id AGGREGATE _mutualFriendCount_distinct = COUNT_DISTINCT(mutualFriend), _mutualFriendCount_has_null = MAX((mutualFriend) == null ? 1 : 0)
+                LET mutualFriendCount = _mutualFriendCount_distinct - NOT_NULL(_mutualFriendCount_has_null, 0)
+                RETURN {person1Id: person1Id, person2Id: person2Id, mutualFriendCount: mutualFriendCount}
+      bind_vars:
+        tag: Frank_Sinatra
+        "@uCollection": nodes
+        uTypeField: type
+        uTypeValue: Tag
+        "@edgeCollection": edges
+        "@edgeCollection2": edges
+        "@edgeCollection4": edges
+        vTypeField: type
+        vTypeValue: Person
+        relTypeField: type
+        relTypeValue: HAS_INTEREST
+        vTypeField2: type
+        vTypeValue2: Person
+        relTypeField2: type
+        relTypeValue2: KNOWS
+        vTypeField3: type
+        vTypeValue3: Person
+        relTypeField3: type
+        relTypeValue3: KNOWS
+        clTypeField: type
+        clTypeValue: HAS_INTEREST
+        relTypeField4: type
+        relTypeValue4: HAS_INTEREST
