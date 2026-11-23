@@ -1438,7 +1438,10 @@ The pipeline implements the SOTA Text2Cypher reference architecture
 
 - **Multi-provider LLM support** — `OpenAIProvider`, `AnthropicProvider`,
   `OpenRouterProvider`; auto-detected from API-key presence or pinned via
-  `LLM_PROVIDER`. Without a key, a rule-based fallback runs (demo/offline only).
+  `LLM_PROVIDER`, through arango-query-core's public `get_llm_provider()` on
+  each request (so a changed key or `LLM_PROVIDER` applies without a restart).
+  Without a key, a rule-based fallback runs (demo/offline only). The package
+  imports no private name from arango-query-core (`test_query_core_public_api.py`).
 - **Dynamic few-shot retrieval (WP-25.1)** — `FewShotIndex` with BM25 over shipped
   `movies`/`northwind`/`social` corpora plus user-approved corrections.
 - **Synthetic few-shot bank (query-first, build-time)** — `arango-cypher-py synthbank`
