@@ -171,7 +171,7 @@ from .three_valued import (
     _test_truth,
     compile_in,
 )
-from .unwind import _translate_standalone_unwind, unwind_source
+from .unwind import _compile_unwind_lines, _translate_standalone_unwind, unwind_source
 from .write_create import _translate_create_query
 from .write_foreach import _translate_foreach_query
 from .write_guards import refuse_document_after_write, refuse_dropped_writes
@@ -484,38 +484,16 @@ def _translate_single_query(
             bind_vars=bind_vars,
         )
 
-    if not mandatory_matches and not pre_unwinds and not in_query_calls and spq.oC_Return() is not None:
-        # Only OPTIONAL MATCHes: with no match there is one row whose
-        # variables are null, and the RETURN projects *that* row
-        # (``n.missing IS NULL`` is true, ``count(n)`` is 0) — not a row of
-        # nulls substituted for the projection's result.
-        opt_lines: list[str] = []
-        opt_env = _compile_optional_matches(
-            optional_matches,
-            resolver=resolver,
-            bind_vars=bind_vars,
-            forbidden_vars=set(),
-            bound_env={},
-            lines=opt_lines,
-        )
-        _active_user_vars.set([v for v in opt_env if not v.startswith("_")])
-        opt_forbidden = set(opt_env.values())
-        for uw in post_unwinds:
-            opt_env = _compile_pipeline_unwind(
-                uw, bind_vars=bind_vars, forbidden_vars=opt_forbidden, var_env=opt_env, lines=opt_lines
-            )
-        _append_return(
-            spq.oC_Return().oC_ProjectionBody(), lines=opt_lines, bind_vars=bind_vars, var_env=opt_env
-        )
-        return AqlQuery(text="\n".join(opt_lines), bind_vars=bind_vars)
-
-    sole_optional = False
     if not mandatory_matches:
-        mandatory_matches.append(optional_matches.pop(0))
-        sole_optional = True
+        ret = spq.oC_Return()
+        if ret is None:
+            raise CoreError("RETURN is required in v0 subset", code="UNSUPPORTED")
+        return _translate_optional_only(reading_clauses, ret=ret, resolver=resolver, bind_vars=bind_vars)
 
     unwinds_token = None
-    if post_unwinds and not pre_unwinds:
+    if post_unwinds:
+        # ``MATCH … UNWIND … RETURN``: the loops go before the projection
+        # (``_append_return``), inside any UNWIND that came before the MATCH.
         unwind_lines: list[str] = []
         unwind_vars: list[str] = []
         for uw in post_unwinds:
@@ -524,7 +502,6 @@ def _translate_single_query(
             unwind_lines.append(f"  FOR {var} IN {expr}")
             unwind_vars.append(var)
         unwinds_token = _pending_unwinds.set((unwind_lines, unwind_vars))
-        post_unwinds = []
     try:
         result = _translate_match_body(
             mandatory_matches,
@@ -537,76 +514,83 @@ def _translate_single_query(
         if unwinds_token is not None:
             _pending_unwinds.reset(unwinds_token)
 
-    if pre_unwinds or post_unwinds:
-        result_lines = result.text.splitlines()
-        final_lines: list[str] = []
-        if pre_unwinds:
-            for uw in pre_unwinds:
-                expr = _compile_expression(uw.oC_Expression(), bind_vars)
-                var = uw.oC_Variable().getText().strip()
-                final_lines.append(f"FOR {var} IN {expr}")
-            for ln in result_lines:
-                final_lines.append(f"  {ln}")
-        else:
-            return_line = result_lines[-1] if result_lines else ""
-            body_lines = result_lines[:-1]
-            final_lines.extend(body_lines)
-            for uw in post_unwinds:
-                expr = _compile_expression(uw.oC_Expression(), bind_vars)
-                var = uw.oC_Variable().getText().strip()
-                final_lines.append(f"  FOR {var} IN {expr}")
-            final_lines.append(return_line)
-        result = AqlQuery(
-            text="\n".join(final_lines),
-            bind_vars=result.bind_vars,
-        )
+    if pre_unwinds:
+        # The MATCH runs once per unwound row. The loops go through
+        # ``_compile_unwind_lines`` so null and non-list values unwind as
+        # Cypher does (``UNWIND 5`` is one row, ``UNWIND null`` none) — an
+        # AQL FOR over either is ERR 1563.
+        final_lines = _compile_unwind_lines(pre_unwinds, bind_vars)
+        final_lines.extend(f"  {ln}" for ln in result.text.splitlines())
+        result = AqlQuery(text="\n".join(final_lines), bind_vars=result.bind_vars)
 
     if in_query_calls:
         result = _inject_in_query_calls(result, in_query_calls, bind_vars)
-
-    if sole_optional:
-        return _wrap_optional_match(result, spq, bind_vars)
     return result
 
 
-def _wrap_optional_match(
-    inner: AqlQuery,
-    spq: CypherParser.OC_SinglePartQueryContext,
+def _translate_optional_only(
+    reading_clauses: list[CypherParser.OC_ReadingClauseContext],
+    *,
+    ret: CypherParser.OC_ReturnContext,
+    resolver: MappingResolver,
     bind_vars: dict[str, Any],
 ) -> AqlQuery:
-    """Wrap an inner AQL query with OPTIONAL MATCH null-fallback semantics.
+    """A single-part query whose only MATCHes are OPTIONAL.
 
-    AQL pattern::
-
-        LET _rows = ( <inner AQL> )
-        FOR _r IN (LENGTH(_rows) > 0 ? _rows : [<null-row>])
-          RETURN _r
+    The reading clauses run in source order over the incoming rows, so an
+    ``UNWIND`` or procedure ``CALL`` before an ``OPTIONAL MATCH`` feeds it one
+    row at a time, and each row the pattern does not match survives with the
+    pattern's variables null (``_compile_optional_matches``).
+    ``UNWIND [1, 2] AS x OPTIONAL MATCH (n {name: x}) RETURN x, n`` is two
+    rows when nothing matches. With no input clause there is one row, and the
+    RETURN projects *that* row (``n.missing IS NULL`` is true, ``count(n)`` is
+    0) — not a row of nulls substituted for the projection's result.
     """
-    ret = spq.oC_Return()
-    if ret is None:
-        raise CoreError("RETURN is required in v0 subset", code="UNSUPPORTED")
-    proj = ret.oC_ProjectionBody()
-    items_ctx = proj.oC_ProjectionItems()
-    items = items_ctx.oC_ProjectionItem() or []
-
-    if len(items) == 1 and items[0].oC_Variable() is None and not _object_rows.get():
-        null_row = "null"
-    else:
-        keys = []
-        for it in items:
-            alias = it.oC_Variable()
-            written = written_column(it)
-            if alias is not None:
-                keys.append(alias.getText().strip())
-            elif written is not None:
-                keys.append(object_key(written))
-            else:
-                keys.append(_infer_key(_compile_expression(it.oC_Expression(), {})))
-        null_row = "{" + ", ".join(f"{k}: null" for k in keys) + "}"
-
-    indented = "\n".join(f"  {ln}" for ln in inner.text.splitlines())
-    aql = f"LET _rows = (\n{indented}\n)\nFOR _r IN (LENGTH(_rows) > 0 ? _rows : [{null_row}])\n  RETURN _r"
-    return AqlQuery(text=aql, bind_vars=bind_vars)
+    lines: list[str] = []
+    forbidden_vars: set[str] = set()
+    var_env: dict[str, str] = {}
+    _active_user_vars.set([])
+    for rc in reading_clauses:
+        m = rc.oC_Match()
+        if m is not None:
+            new_env = _compile_optional_matches(
+                [m],
+                resolver=resolver,
+                bind_vars=bind_vars,
+                forbidden_vars=forbidden_vars,
+                bound_env=var_env,
+                lines=lines,
+            )
+            var_env = {**var_env, **new_env}
+            forbidden_vars.update(new_env.values())
+            in_scope = list(_active_user_vars.get())
+            _active_user_vars.set(
+                [*in_scope, *(v for v in new_env if not v.startswith("_") and v not in in_scope)]
+            )
+            continue
+        uw = rc.oC_Unwind()
+        if uw is not None:
+            var_env = _compile_pipeline_unwind(
+                uw, bind_vars=bind_vars, forbidden_vars=forbidden_vars, var_env=var_env, lines=lines
+            )
+            continue
+        iqc = rc.oC_InQueryCall()
+        if iqc is not None:
+            var_env = _compile_pipeline_call(
+                iqc,
+                bind_vars=bind_vars,
+                forbidden_vars=forbidden_vars,
+                var_env=var_env,
+                lines=lines,
+                indent="  ",
+            )
+            continue
+        raise CoreError(
+            "Only OPTIONAL MATCH, UNWIND and CALL … YIELD are supported before RETURN without a MATCH",
+            code="NOT_IMPLEMENTED",
+        )
+    _append_return(ret.oC_ProjectionBody(), lines=lines, bind_vars=bind_vars, var_env=var_env)
+    return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
 
 
 def _emit_single_hop(
@@ -1777,26 +1761,11 @@ def _translate_computational_multi_part(
             _active_user_vars.set([*user_vars, var])
 
     def _emit_procedure_call(iqc: CypherParser.OC_InQueryCallContext) -> None:
-        # Yielded names are fresh in AQL: a WITH may have dropped a name a
-        # later CALL yields again (Call6 [1]), and AQL may not reassign it.
-        names: dict[str, str] = {}
-
-        def aql_name(var: str) -> str:
-            names[var] = _pick_fresh_var(var, forbidden_vars=forbidden)
-            return names[var]
-
-        incoming = dict(var_env)
-        call_lines, yielded = in_query_call_lines(
-            iqc,
-            bind_vars,
-            row=_pick_fresh_var("_call_row", forbidden_vars=forbidden),
-            aql_name=aql_name,
-            rewrite=lambda expr: _rewrite_vars(expr, incoming) if incoming else expr,
+        var_env.update(
+            _compile_pipeline_call(
+                iqc, bind_vars=bind_vars, forbidden_vars=forbidden, var_env=var_env, lines=lines
+            )
         )
-        lines.extend(call_lines)
-        var_env.update(names)
-        in_scope = list(_active_user_vars.get())
-        _active_user_vars.set([*in_scope, *(v for v in yielded if v not in in_scope)])
 
     def _emit_reading(rc: CypherParser.OC_ReadingClauseContext) -> None:
         call = subquery_call(rc)
@@ -1924,6 +1893,42 @@ def _compile_pipeline_unwind(
     if cypher_var not in user_vars:
         _active_user_vars.set([*user_vars, cypher_var])
     return {**var_env, cypher_var: aql_var}
+
+
+def _compile_pipeline_call(
+    iqc: CypherParser.OC_InQueryCallContext,
+    *,
+    bind_vars: dict[str, Any],
+    forbidden_vars: set[str],
+    var_env: dict[str, str],
+    lines: list[str],
+    indent: str = "",
+) -> dict[str, str]:
+    """Compile an in-query ``CALL proc(…) YIELD …`` that reads rows already
+    bound. Returns the variable environment extended with the yielded names.
+
+    Yielded names are fresh in AQL: a WITH may have dropped a name a later
+    CALL yields again (Call6 [1]), and AQL may not reassign it.
+    """
+    names: dict[str, str] = {}
+
+    def aql_name(var: str) -> str:
+        names[var] = _pick_fresh_var(var, forbidden_vars=forbidden_vars)
+        forbidden_vars.add(names[var])
+        return names[var]
+
+    incoming = dict(var_env)
+    call_lines, yielded = in_query_call_lines(
+        iqc,
+        bind_vars,
+        row=_pick_fresh_var("_call_row", forbidden_vars=forbidden_vars),
+        aql_name=aql_name,
+        rewrite=lambda expr: _rewrite_vars(expr, incoming) if incoming else expr,
+    )
+    lines.extend(f"{indent}{ln}" for ln in call_lines)
+    in_scope = list(_active_user_vars.get())
+    _active_user_vars.set([*in_scope, *(v for v in yielded if v not in in_scope)])
+    return {**var_env, **names}
 
 
 def _compile_following_match(

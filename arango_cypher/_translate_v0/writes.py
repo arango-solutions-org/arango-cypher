@@ -23,6 +23,7 @@ from .literals import _aql_string_literal
 from .naming import _strip_label_backticks
 from .property_writes import PropertyOp, PropertyWrites, StoredWrite
 from .state import _active_resolver
+from .unwind import unwind_source
 
 
 def _atom_variable(atom: Any) -> str | None:
@@ -340,7 +341,9 @@ def _emit_unwind_for(
     Binds ``var`` into ``var_env`` and rewrites already-bound variables in the
     list expression (so ``MATCH (a) UNWIND a.items AS x`` resolves ``a``).
     """
-    expr = _compile_expression(uw.oC_Expression(), bind_vars)
+    # ``unwind_source``: Cypher unwinds null to no rows and a scalar to one;
+    # an AQL FOR over either is ERR 1563.
+    expr = unwind_source(uw.oC_Expression(), _compile_expression(uw.oC_Expression(), bind_vars))
     if var_env:
         expr = _rewrite_vars(expr, var_env)
     var = uw.oC_Variable().getText().strip()

@@ -101,7 +101,7 @@ def _translate_merge_query(
             bind_vars=bind_vars,
         )
 
-    var, _coll_key, coll_ref, search_doc, insert_doc, update_doc = _build_merge_node_docs(
+    var, _coll_key, coll_ref, search_doc, insert_doc, update, options = _build_merge_node_docs(
         node, merge_ctx, resolver=resolver, bind_vars=bind_vars, trailing_sets=trailing_sets
     )
 
@@ -110,8 +110,8 @@ def _translate_merge_query(
 
     lines.append(f"UPSERT {search_doc}")
     lines.append(f"INSERT {insert_doc}")
-    lines.append(f"UPDATE {update_doc}")
-    lines.append(f"IN {coll_ref}")
+    lines.append(update)
+    lines.append(f"IN {coll_ref}{options}")
 
     ret = spq.oC_Return()
     if ret is not None:
@@ -315,7 +315,15 @@ def _extract_merge_actions(
                 lookups = prop_expr.oC_PropertyLookup() or []
                 if not lookups:
                     continue
-                prop_name = lookups[-1].oC_PropertyKeyName().getText().strip()
+                if len(lookups) > 1:
+                    # ``n.a.b`` used to write ``b`` onto the node, as SET once did
+                    # (``_property_writes``).
+                    raise CoreError(
+                        f"MERGE ... SET of a nested property ({prop_expr.getText()}) is not supported; "
+                        "set the whole top-level property instead",
+                        code="UNSUPPORTED",
+                    )
+                prop_name = lookups[0].oC_PropertyKeyName().getText().strip()
                 val = _compile_expression(si.oC_Expression(), bind_vars)
                 if is_on_create:
                     on_create_fields.append(f"{prop_name}: {val}")
@@ -524,7 +532,7 @@ def _translate_pattern_merge(
                 )
             endpoints.append(endpoints[0])
             continue
-        _, coll_key, _, search_doc, insert_doc, _ = _build_merge_node_docs(
+        _, coll_key, _, search_doc, insert_doc, _, _ = _build_merge_node_docs(
             node, merge_ctx, resolver=resolver, bind_vars=bind_vars
         )
         endpoints.append(
@@ -649,12 +657,14 @@ def _build_merge_node_docs(
     resolver: MappingResolver,
     bind_vars: dict[str, Any],
     trailing_sets: list[CypherParser.OC_SetContext] | None = None,
-) -> tuple[str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, str]:
     """Build the UPSERT docs for a node MERGE.
 
-    Returns ``(var, coll_key, coll_ref, search_doc, insert_doc, update_doc)``.
-    Shared by the single- and multi-MERGE translators so both emit identical
-    document literals (only the surrounding statement form differs).
+    Returns ``(var, coll_key, coll_ref, search_doc, insert_doc, update,
+    options)``: *update* is the whole ``UPDATE {…}`` clause and *options* the
+    ``OPTIONS`` suffix of ``IN <collection>`` (:mod:`merge_docs`). Shared by the
+    single- and multi-MERGE translators so both emit identical document
+    literals (only the surrounding statement form differs).
     """
     var, labels = _extract_node_var_and_labels(node, default_var="n")
     if node.oC_Variable() is not None and var in outer_bound_names(merge_ctx):
@@ -672,10 +682,15 @@ def _build_merge_node_docs(
         props = _compile_create_props(node.oC_Properties(), bind_vars)
         search_doc = _build_insert_doc(props, [])
         on_create_fields, on_match_fields = _extract_merge_actions(merge_ctx, bind_vars, trailing_sets)
-        insert_fields = [*(f"{k}: {v}" for k, v in props), *on_create_fields]
-        insert_doc = "{" + ", ".join(insert_fields) + "}" if on_create_fields else search_doc
-        update_doc = "{" + ", ".join(on_match_fields) + "}" if on_match_fields else "{}"
-        return var, coll_key, _aql_collection_ref(coll_key), search_doc, insert_doc, update_doc
+        return (
+            var,
+            coll_key,
+            _aql_collection_ref(coll_key),
+            search_doc,
+            *_merge_action_docs(
+                search_doc, [f"{k}: {v}" for k, v in props], on_create_fields, on_match_fields
+            ),
+        )
 
     primary = _pick_primary_entity_label(labels, resolver)
     entity_mapping = resolver.resolve_entity(_strip_label_backticks(primary))
@@ -710,17 +725,32 @@ def _build_merge_node_docs(
         extra_fields.append(f"{type_field}: @{tv_key}")
 
     search_doc = _build_insert_doc(props, extra_fields)
-    insert_doc = search_doc
-
     on_create_fields, on_match_fields = _extract_merge_actions(merge_ctx, bind_vars, trailing_sets)
-    if on_create_fields:
-        all_insert_fields = list(extra_fields)
-        all_insert_fields.extend(f"{k}: {v}" for k, v in props)
-        all_insert_fields.extend(on_create_fields)
-        insert_doc = "{" + ", ".join(all_insert_fields) + "}" if all_insert_fields else "{}"
+    return (
+        var,
+        coll_key,
+        coll_ref,
+        search_doc,
+        *_merge_action_docs(
+            search_doc, [*extra_fields, *(f"{k}: {v}" for k, v in props)], on_create_fields, on_match_fields
+        ),
+    )
 
-    update_doc = "{" + ", ".join(on_match_fields) + "}" if on_match_fields else "{}"
-    return var, coll_key, coll_ref, search_doc, insert_doc, update_doc
+
+def _merge_action_docs(
+    search_doc: str,
+    base_fields: list[str],
+    on_create_fields: list[str],
+    on_match_fields: list[str],
+) -> tuple[str, str, str]:
+    """``(insert_doc, update, options)`` for a MERGE's ON CREATE / ON MATCH
+    actions, through :mod:`merge_docs` as the relationship MERGE does: a
+    property set to the literal ``null`` is left out of the INSERT, and an
+    ON MATCH one is removed (``keepNull: false``) — Cypher stores no null
+    property. With no ON CREATE action the INSERT is the search document.
+    """
+    insert_doc = insert_document(base_fields, on_create_fields, []) if on_create_fields else search_doc
+    return insert_doc, update_clause(on_match_fields, []), upsert_options(on_match_fields)
 
 
 def _build_merge_rel_docs(
@@ -731,12 +761,12 @@ def _build_merge_rel_docs(
     resolver: MappingResolver,
     bind_vars: dict[str, Any],
     var_ids: dict[str, str],
-) -> tuple[str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, str]:
     """Build the UPSERT docs for a single-hop relationship MERGE whose endpoints
     are already bound by earlier MERGE clauses in the same statement.
 
     Returns ``(var, edge_coll_key, edge_coll_ref, search_doc, insert_doc,
-    update_doc)``. Endpoints are referenced by their bound ``_id`` (via
+    update, options)``, as :func:`_build_merge_node_docs`. Endpoints are referenced by their bound ``_id`` (via
     ``var_ids``) rather than re-scanned, because the multi-MERGE form runs each
     element as a ``LET``-bound UPSERT.
     """
@@ -798,13 +828,18 @@ def _build_merge_rel_docs(
         search_fields.append(f"{type_field}: @{rtv_key}")
         insert_fields.append(f"{type_field}: @{rtv_key}")
 
+    # The pattern's properties are part of what the MERGE matches, as in
+    # ``_translate_merge_relationship``: (a)-[:T {since: 2020}]->(b) does not
+    # match an edge with since 2019, so it creates one.
     for k, v in _compile_create_rel_props(rel_pat, bind_vars):
+        search_fields.append(f"{k}: {v}")
         insert_fields.append(f"{k}: {v}")
 
     on_create_fields, on_match_fields = _extract_merge_actions(merge_ctx, bind_vars)
     search_doc = "{" + ", ".join(search_fields) + "}"
-    insert_doc = "{" + ", ".join(insert_fields + on_create_fields) + "}"
-    update_doc = "{" + ", ".join(on_match_fields) + "}" if on_match_fields else "{}"
+    insert_doc, update, options = _merge_action_docs(
+        search_doc, insert_fields, on_create_fields, on_match_fields
+    )
 
     rel_var_name = ""
     if detail.oC_Variable() is not None:
@@ -812,7 +847,7 @@ def _build_merge_rel_docs(
     if not rel_var_name:
         rel_var_name = "r"
 
-    return rel_var_name, edge_coll_key, edge_coll_ref, search_doc, insert_doc, update_doc
+    return rel_var_name, edge_coll_key, edge_coll_ref, search_doc, insert_doc, update, options
 
 
 def _translate_multi_merge_query(
@@ -866,18 +901,18 @@ def _translate_multi_merge_query(
             )
 
         if chains:
-            var, coll_key, coll_ref, search_doc, insert_doc, update_doc = _build_merge_rel_docs(
+            var, coll_key, coll_ref, search_doc, insert_doc, update, options = _build_merge_rel_docs(
                 node, chains[0], mc, resolver=resolver, bind_vars=bind_vars, var_ids=var_ids
             )
         else:
-            var, coll_key, coll_ref, search_doc, insert_doc, update_doc = _build_merge_node_docs(
+            var, coll_key, coll_ref, search_doc, insert_doc, update, options = _build_merge_node_docs(
                 node, mc, resolver=resolver, bind_vars=bind_vars
             )
 
         _claim(coll_key)
         lines.append(
             f"LET {var} = FIRST(UPSERT {search_doc} INSERT {insert_doc} "
-            f"UPDATE {update_doc} IN {coll_ref} RETURN NEW)"
+            f"{update} IN {coll_ref}{options} RETURN NEW)"
         )
         var_ids[var] = f"{var}._id"
 

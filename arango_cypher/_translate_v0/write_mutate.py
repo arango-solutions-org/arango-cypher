@@ -10,6 +10,7 @@ from arango_query_core import AqlQuery, CoreError, MappingResolver
 from .._antlr.CypherParser import CypherParser
 from .label_tests import label_test
 from .naming import _aql_collection_ref, _pick_bind_key, _pick_fresh_var, _strip_label_backticks
+from .pipeline_writes import end_on_write
 from .property_writes import keep_fields_for
 from .supertypes import union_scan_source
 from .write_create import _find_or_create_collection_bind_key
@@ -272,6 +273,12 @@ def _translate_mutating_query(
         written.append((f"SET/REMOVE on {target_var}", bind_vars[key]))
         if optional:
             statement = _stored_write_line("_w", _aql_collection_ref(key), write, indent="")
+            if ret is None:
+                # Nothing reads the written document: a plain subquery, which
+                # ``end_on_write`` turns into the last statement if it is last.
+                done = _pick_fresh_var(f"_set_{target_var}", forbidden_vars=set(write_keys))
+                lines.append(f"  LET {done} = ({guarded(target_var, statement)})")
+                continue
             updated = _pick_fresh_var(
                 f"{target_var}_new", forbidden_vars=set(write_keys) | set(return_env.values())
             )
@@ -322,5 +329,10 @@ def _translate_mutating_query(
     if ret is not None:
         var_env = {v: return_env.get(v, v) for v in write_keys} if return_env else None
         _append_return(ret.oC_ProjectionBody(), lines=lines, bind_vars=bind_vars, var_env=var_env)
+    else:
+        # ``OPTIONAL MATCH … SET`` / ``DELETE`` with no RETURN ends on a
+        # null-guarded ``LET``, and AQL ends a query with RETURN or a write
+        # (ERR 1501).
+        end_on_write(lines)
 
     return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
