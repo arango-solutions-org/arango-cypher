@@ -63,6 +63,19 @@ _active_user_vars: ContextVar[list[str]] = ContextVar(
 
 
 @dataclass
+class _CompiledPattern:
+    """One MATCH pattern element compiled to AQL lines, before any RETURN."""
+
+    lines: list[str]
+    #: The AQL variable names in use.
+    forbidden_vars: set[str]
+    #: ``type(r)`` for each relationship variable.
+    rel_type_exprs: dict[str, str]
+    #: Whether the pattern has relationships (merged hops may leave dead LETs).
+    has_chains: bool
+
+
+@dataclass
 class _HopMeta:
     """Pre-processed metadata for a single hop in a relationship chain."""
 

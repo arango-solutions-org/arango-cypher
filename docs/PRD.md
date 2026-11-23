@@ -867,11 +867,20 @@ edges too, and so it is in a first MATCH: a variable-length relationship the
 query reads (`[r:T*1..2]`, and `[r*1..1]`, which is variable-length syntax)
 gets the traversal's path (`LET r = path.edges`), a named path splices each
 variable-length hop's vertices and edges, and the properties of a
-variable-length relationship hold for every edge, not only the last.
+variable-length relationship hold for every edge, not only the last
+(`_every_edge_filters`) — in a single pattern, comma-separated parts, a MATCH
+after WITH or OPTIONAL MATCH, and a pattern predicate or comprehension alike.
 Relationship uniqueness across a pattern's traversals covers merged hops and
-variable-length edge lists, and the comma-separated parts of one MATCH
-(`(u)-[:F]->(v), (w)-[:F]->(v)` never binds one edge twice), named or not; an
-unnamed variable-length hop there binds only its last edge, so it is left out.
+variable-length edge lists, before a RETURN or a WITH alike, and the
+comma-separated parts of one MATCH (`(u)-[:F]->(v), (w)-[:F]->(v)` never binds
+one edge twice), named or not; a variable-length hop there keeps its path when
+the clause has another relationship, so its edge list joins the check. A MATCH
+before a WITH or a write compiles with the same code as `MATCH … RETURN`
+(`_compile_pattern_element`, hops not merged); the copies that had drifted from
+it checked a variable-length relationship's last edge only, matched one edge
+twice across hops, gave an unnamed node a name the query uses elsewhere
+(`MATCH (:User), (n1:User)` joined the two) and matched an undirected self-loop
+twice in comma-separated parts.
 It holds within one MATCH clause only: `MATCH (u)-[a]->(v) MATCH (w)-[b]->(v)`
 may bind one edge to `a` and `b`. An empty interval (`*2..1`, `*..0`) matches
 nothing. `MATCH … UNWIND … RETURN` runs the UNWIND before the projection's
