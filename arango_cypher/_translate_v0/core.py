@@ -128,6 +128,7 @@ from .state import (
     _active_user_params,
     _active_user_vars,
     _active_warnings,
+    _CompiledPattern,
     _HopMeta,
     _object_rows,
     _pending_unwinds,
@@ -1147,80 +1148,40 @@ def _try_compile_edge_only_scan(
     return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
 
 
-def _translate_match_body(
-    match_ctxs: list[CypherParser.OC_MatchContext],
+def _compile_pattern_element(
+    elem: CypherParser.OC_PatternElementContext,
     *,
-    spq: CypherParser.OC_SinglePartQueryContext,
-    optional_matches: list[CypherParser.OC_MatchContext],
+    path_var_name: str | None,
+    where_ctx: CypherParser.OC_WhereContext | None,
     resolver: MappingResolver,
     bind_vars: dict[str, Any],
-) -> AqlQuery:
-    """Core MATCH translation logic shared by regular and optional-match paths."""
-    all_parts: list = []
-    extra_wheres: list[CypherParser.OC_WhereContext] = []
-    for mc in match_ctxs:
-        pattern = mc.oC_Pattern()
-        pp = pattern.oC_PatternPart()
-        if not pp:
-            raise CoreError("MATCH pattern is required", code="UNSUPPORTED")
-        all_parts.extend(pp)
-        wc = mc.oC_Where()
-        if wc is not None:
-            extra_wheres.append(wc)
+    merge_hops: bool = True,
+) -> _CompiledPattern:
+    """Compile one MATCH pattern element and its WHERE: a node, or a node and
+    any number of hops, with its path bound to *path_var_name*.
 
-    # Multi-pattern-part or multi-MATCH: compile all pattern parts together
-    if len(all_parts) > 1 or len(match_ctxs) > 1:
-        lines, forbidden = _compile_match_multi_parts_from_parts(
-            all_parts,
-            extra_wheres=extra_wheres,
-            resolver=resolver,
-            bind_vars=bind_vars,
-        )
-        var_env = {v: v for v in forbidden}
+    The one compiler for a single-pattern MATCH, whether a RETURN follows
+    (``_translate_match_body``) or a WITH or a write
+    (``_compile_match_pipeline``). Per hop: the end node's labels, a bound end
+    node matched by ``_id`` (an undirected hop back to the start walks one way,
+    ``_self_loop_direction``), a variable-length relationship's properties
+    checked on every edge and the relationship bound to its list of edges, and
+    one relationship never matched twice within the pattern.
 
-        multi_rel_type_exprs: dict[str, str] = {}
-        if optional_matches:
-            opt_env = _compile_optional_matches(
-                optional_matches,
-                resolver=resolver,
-                bind_vars=bind_vars,
-                forbidden_vars=forbidden,
-                bound_env={v: v for v in _pattern_parts_user_vars(all_parts)},
-                lines=lines,
-                rel_type_exprs=multi_rel_type_exprs,
-            )
-            var_env.update(opt_env)
-
-        ret = spq.oC_Return()
-        if ret is None:
-            raise CoreError("RETURN is required in v0 subset", code="UNSUPPORTED")
-        _set_user_vars_from_parts(all_parts)
-        _append_return(
-            ret.oC_ProjectionBody(),
-            lines=lines,
-            bind_vars=bind_vars,
-            var_env=var_env,
-            rel_type_exprs=multi_rel_type_exprs or None,
-        )
-        return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
-
-    match_ctx = match_ctxs[0]
-
-    # Extract single pattern element (existing v0 behavior)
-    anon = all_parts[0].oC_AnonymousPatternPart()
-    refuse_unbound_shortest_path(anon)
-    # Start from the end an index finds (pattern_reversal).
-    elem = from_selective_end(
-        anon.oC_PatternElement(), resolver, named=all_parts[0].oC_Variable() is not None
-    )
+    *merge_hops* folds consecutive hops over one edge collection into a single
+    ``N..N`` traversal. Its intermediate nodes are bound with LETs that
+    ``_eliminate_dead_lets`` prunes once the query is assembled, so a caller
+    that goes on adding clauses passes False.
+    """
     node = elem.oC_NodePattern()
     if node is None:
         raise CoreError("Only node patterns are supported in v0", code="UNSUPPORTED")
     chains = elem.oC_PatternElementChain() or []
 
-    # Case A: single node pattern (existing v0 behavior)
     if not chains:
         var, labels = _extract_node_var_and_labels(node, default_var="n")
+        if node.oC_Variable() is None:
+            var = _anonymous_var(var, node, set())
         prop_filters = _compile_node_pattern_properties(node, var=var, bind_vars=bind_vars)
 
         base_filters: list[str] = []
@@ -1264,14 +1225,12 @@ def _translate_match_body(
             else:
                 raise CoreError(f"Unsupported entity mapping style: {entity_style}", code="INVALID_MAPPING")
 
-        where_ctx = match_ctx.oC_Where()
         user_filter = _compile_where(where_ctx.oC_Expression(), bind_vars) if where_ctx is not None else None
 
         filters = list(base_filters) + prop_filters
         if user_filter:
             filters.append(user_filter)
 
-        # Build AQL
         lines = [for_line]
         if labels and entity_style != "UNION":
             idx_hint = _build_collection_index_hint(primary, prop_filters, resolver)
@@ -1279,69 +1238,19 @@ def _translate_match_body(
                 lines.append(f"  {idx_hint}")
         for f in filters:
             lines.append(f"  FILTER {f}")
+        forbidden: set[str] = {var}
         # ``MATCH p = (n)``: a zero-length path of the one node.
-        single_path_ctx = all_parts[0].oC_Variable()
-        if single_path_ctx is not None:
-            single_path = single_path_ctx.getText().strip()
-            lines.append(f"  LET {single_path} = {{nodes: [{var}], edges: []}}")
-            _active_path_vars.get()[single_path] = ([var], [])
+        if path_var_name is not None:
+            lines.append(f"  LET {path_var_name} = {{nodes: [{var}], edges: []}}")
+            _active_path_vars.get()[path_var_name] = ([var], [])
+            forbidden.add(path_var_name)
+        return _CompiledPattern(lines=lines, forbidden_vars=forbidden, rel_type_exprs={}, has_chains=False)
 
-        opt_var_env: dict[str, str] = {}
-        node_rel_type_exprs: dict[str, str] = {}
-        if optional_matches:
-            fv: set[str] = {var}
-            opt_var_env = _compile_optional_matches(
-                optional_matches,
-                resolver=resolver,
-                bind_vars=bind_vars,
-                forbidden_vars=fv,
-                bound_env={var: var},
-                lines=lines,
-                rel_type_exprs=node_rel_type_exprs,
-            )
-
-        ret = spq.oC_Return()
-        if ret is None:
-            raise CoreError("RETURN is required in v0 subset", code="UNSUPPORTED")
-        _set_user_vars_from_parts(all_parts)
-        _append_return(
-            ret.oC_ProjectionBody(),
-            lines=lines,
-            bind_vars=bind_vars,
-            var_env=opt_var_env,
-            rel_type_exprs=node_rel_type_exprs or None,
-        )
-        return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
-
-    # Check for named path: p = (a)-[:REL]->(b)
-    path_var_name: str | None = None
-    pp_var_ctx = all_parts[0].oC_Variable()
-    if pp_var_ctx is not None:
-        path_var_name = pp_var_ctx.getText().strip()
-
-    # Case B: relationship pattern (1+ hops)
+    # A relationship pattern (1+ hops).
     u_var, u_labels = _extract_node_var_and_labels(node, default_var="u")
     if node.oC_Variable() is None:
         u_var = _anonymous_var(u_var, node, set())
     u_prop_filters = _compile_node_pattern_properties(node, var=u_var, bind_vars=bind_vars)
-
-    # Fast path: a fully-anonymous single hop (e.g. ``MATCH ()-[r]->()``) is an
-    # edge-only query. Scan the edge collection directly instead of traversing
-    # from every start node — orders of magnitude faster on large graphs.
-    edge_only = _try_compile_edge_only_scan(
-        spq=spq,
-        match_ctx=match_ctx,
-        node=node,
-        u_labels=u_labels,
-        u_prop_filters=u_prop_filters,
-        chains=chains,
-        path_var_name=path_var_name,
-        optional_matches=optional_matches,
-        resolver=resolver,
-        bind_vars=bind_vars,
-    )
-    if edge_only is not None:
-        return edge_only
 
     # A leading unlabeled anchor with a typed first hop can be resolved from the
     # relationship's domain/range (e.g. ()-[:REVIEWED]->(m:Movie) → the anchor is
@@ -1424,6 +1333,8 @@ def _translate_match_body(
         if not rel_named:
             rel_var = _anonymous_var(rel_var, rel_pat, forbidden_vars)
         elif rel_var in forbidden_vars:
+            raise CoreError("Relationship variable must not shadow node variables", code="UNSUPPORTED")
+        if rel_named and rel_var == v_var:
             raise CoreError("Relationship variable must not shadow node variables", code="UNSUPPORTED")
         forbidden_vars.add(rel_var)
 
@@ -1520,7 +1431,7 @@ def _translate_match_body(
             groups.append([i])
             continue
         prev = hops[groups[-1][-1]]
-        mergeable = (
+        mergeable = merge_hops and (
             h.r_style != "EMBEDDED"
             and prev.r_style != "EMBEDDED"
             and h.edge_collection == prev.edge_collection
@@ -1624,7 +1535,6 @@ def _translate_match_body(
 
     is_varlen_trav = any(h.rel_range[0] != h.rel_range[1] for h in hops)
 
-    where_ctx = match_ctx.oC_Where()
     user_filter = _compile_where(where_ctx.oC_Expression(), bind_vars) if where_ctx is not None else None
     if user_filter:
         _emit_prune_and_filter(
@@ -1634,17 +1544,115 @@ def _translate_match_body(
             is_varlen=is_varlen_trav,
             lines=lines,
         )
+    return _CompiledPattern(
+        lines=lines, forbidden_vars=forbidden_vars, rel_type_exprs=rel_type_exprs, has_chains=True
+    )
 
-    opt_var_env_rel: dict[str, str] = {}
+
+def _translate_match_body(
+    match_ctxs: list[CypherParser.OC_MatchContext],
+    *,
+    spq: CypherParser.OC_SinglePartQueryContext,
+    optional_matches: list[CypherParser.OC_MatchContext],
+    resolver: MappingResolver,
+    bind_vars: dict[str, Any],
+) -> AqlQuery:
+    """Core MATCH translation logic shared by regular and optional-match paths."""
+    all_parts: list = []
+    extra_wheres: list[CypherParser.OC_WhereContext] = []
+    for mc in match_ctxs:
+        pattern = mc.oC_Pattern()
+        pp = pattern.oC_PatternPart()
+        if not pp:
+            raise CoreError("MATCH pattern is required", code="UNSUPPORTED")
+        all_parts.extend(pp)
+        wc = mc.oC_Where()
+        if wc is not None:
+            extra_wheres.append(wc)
+
+    # Multi-pattern-part or multi-MATCH: compile all pattern parts together
+    if len(all_parts) > 1 or len(match_ctxs) > 1:
+        lines, forbidden = _compile_match_multi_parts_from_parts(
+            all_parts,
+            extra_wheres=extra_wheres,
+            resolver=resolver,
+            bind_vars=bind_vars,
+        )
+        var_env = {v: v for v in forbidden}
+
+        multi_rel_type_exprs: dict[str, str] = {}
+        if optional_matches:
+            opt_env = _compile_optional_matches(
+                optional_matches,
+                resolver=resolver,
+                bind_vars=bind_vars,
+                forbidden_vars=forbidden,
+                bound_env={v: v for v in _pattern_parts_user_vars(all_parts)},
+                lines=lines,
+                rel_type_exprs=multi_rel_type_exprs,
+            )
+            var_env.update(opt_env)
+
+        ret = spq.oC_Return()
+        if ret is None:
+            raise CoreError("RETURN is required in v0 subset", code="UNSUPPORTED")
+        _set_user_vars_from_parts(all_parts)
+        _append_return(
+            ret.oC_ProjectionBody(),
+            lines=lines,
+            bind_vars=bind_vars,
+            var_env=var_env,
+            rel_type_exprs=multi_rel_type_exprs or None,
+        )
+        return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
+
+    match_ctx = match_ctxs[0]
+    part = all_parts[0]
+    anon = part.oC_AnonymousPatternPart()
+    refuse_unbound_shortest_path(anon)
+    path_var_name = part.oC_Variable().getText().strip() if part.oC_Variable() is not None else None
+    # Start from the end an index finds (pattern_reversal).
+    elem = from_selective_end(anon.oC_PatternElement(), resolver, named=path_var_name is not None)
+
+    # Fast path: a fully-anonymous single hop (e.g. ``MATCH ()-[r]->()``) is an
+    # edge-only query. Scan the edge collection directly instead of traversing
+    # from every start node — orders of magnitude faster on large graphs.
+    start, chains = elem.oC_NodePattern(), elem.oC_PatternElementChain() or []
+    if start is not None and chains:
+        edge_only = _try_compile_edge_only_scan(
+            spq=spq,
+            match_ctx=match_ctx,
+            node=start,
+            u_labels=_extract_node_var_and_labels(start, default_var="u")[1],
+            # A probe: the real bind_vars are left alone when this falls through.
+            u_prop_filters=_compile_node_pattern_properties(start, var="u", bind_vars={}),
+            chains=chains,
+            path_var_name=path_var_name,
+            optional_matches=optional_matches,
+            resolver=resolver,
+            bind_vars=bind_vars,
+        )
+        if edge_only is not None:
+            return edge_only
+
+    compiled = _compile_pattern_element(
+        elem,
+        path_var_name=path_var_name,
+        where_ctx=match_ctx.oC_Where(),
+        resolver=resolver,
+        bind_vars=bind_vars,
+    )
+    lines = compiled.lines
+    opt_var_env: dict[str, str] = {}
     if optional_matches:
-        opt_var_env_rel = _compile_optional_matches(
+        opt_var_env = _compile_optional_matches(
             optional_matches,
             resolver=resolver,
             bind_vars=bind_vars,
-            forbidden_vars=forbidden_vars,
+            forbidden_vars=compiled.forbidden_vars,
             bound_env={v: v for v in _pattern_parts_user_vars(all_parts)},
             lines=lines,
-            rel_type_exprs=rel_type_exprs,
+            rel_type_exprs=compiled.rel_type_exprs,
         )
 
     ret = spq.oC_Return()
@@ -1655,10 +1663,11 @@ def _translate_match_body(
         ret.oC_ProjectionBody(),
         lines=lines,
         bind_vars=bind_vars,
-        var_env=opt_var_env_rel,
-        rel_type_exprs=rel_type_exprs,
+        var_env=opt_var_env,
+        rel_type_exprs=compiled.rel_type_exprs,
     )
-    lines = _eliminate_dead_lets(lines)
+    if compiled.has_chains:
+        lines = _eliminate_dead_lets(lines)
     return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
 
 
@@ -3274,286 +3283,31 @@ def _compile_match_pipeline(
     resolver: MappingResolver,
     bind_vars: dict[str, Any],
 ) -> tuple[list[str], set[str]]:
+    """Compile a single-pattern MATCH into AQL lines, without RETURN: a MATCH a
+    WITH or a write follows.
+
+    The same compiler as ``MATCH … RETURN`` (``_compile_pattern_element``), so
+    the two cannot drift; it used to be a copy that checked a variable-length
+    relationship's properties on its last edge only and let one relationship
+    match twice across hops. Hops are not merged (the caller adds clauses).
     """
-    Compile the MATCH clause into AQL lines, without emitting RETURN.
-    Supports:
-    - MATCH (n:Label)
-    - MATCH (u:Label)-[:TYPE]->(v:Label) (1 hop)
-    """
-    pattern = match_ctx.oC_Pattern()
-    parts = pattern.oC_PatternPart()
+    parts = match_ctx.oC_Pattern().oC_PatternPart()
     if not parts or len(parts) != 1:
         raise CoreError("Only a single pattern part is supported in v0", code="UNSUPPORTED")
     anon = parts[0].oC_AnonymousPatternPart()
     refuse_unbound_shortest_path(anon)
+    path_var_name = parts[0].oC_Variable().getText().strip() if parts[0].oC_Variable() is not None else None
     # Start from the end an index finds (pattern_reversal).
-    elem = from_selective_end(anon.oC_PatternElement(), resolver, named=parts[0].oC_Variable() is not None)
-    node = elem.oC_NodePattern()
-    if node is None:
-        raise CoreError("Only node patterns are supported in v0", code="UNSUPPORTED")
-    chains = elem.oC_PatternElementChain() or []
-
-    # Node-only
-    if not chains:
-        var, labels = _extract_node_var_and_labels(node, default_var="n")
-        prop_filters = _compile_node_pattern_properties(node, var=var, bind_vars=bind_vars)
-        lines: list[str]
-        base_filters: list[str] = []
-        if not labels:
-            bind_vars["@collection"] = _infer_unlabeled_collection(resolver)
-            lines = [f"FOR {var} IN @@collection"]
-        else:
-            primary = _pick_primary_entity_label(labels, resolver)
-            entity_mapping = resolver.resolve_entity(_strip_label_backticks(primary))
-            entity_style = entity_mapping.get("style")
-            if entity_style == "COLLECTION":
-                base_filters.extend(_collection_label_filters(var, labels, primary, bind_vars))
-                bind_vars["@collection"] = entity_mapping["collectionName"]
-                lines = [f"FOR {var} IN @@collection"]
-            elif entity_style == "LABEL":
-                bind_vars["@collection"] = entity_mapping["collectionName"]
-                bind_vars["typeField"] = entity_mapping["typeField"]
-                bind_vars["typeValue"] = entity_mapping["typeValue"]
-                lines = [f"FOR {var} IN @@collection"]
-                base_filters.append(label_test(var, "typeField", "typeValue", entity_mapping, bind_vars))
-                base_filters.extend(_extra_label_filters(var, labels, primary, bind_vars))
-            elif entity_style == "MULTI_LABEL":
-                bind_vars["@collection"] = entity_mapping["collectionName"]
-                lines = [f"FOR {var} IN @@collection"]
-                base_filters.append(_multi_label_filter(var, entity_mapping, bind_vars))
-                base_filters.extend(_extra_label_filters(var, labels, primary, bind_vars))
-            elif entity_style == "UNION":
-                source, _ = node_scan_source(
-                    var,
-                    primary,
-                    entity_mapping,
-                    resolver,
-                    bind_vars,
-                    coll_key="@collection",
-                    filters=prop_filters,
-                )
-                lines = [f"FOR {var} IN {source}"]
-                prop_filters = []
-                base_filters.extend(_extra_label_filters(var, labels, primary, bind_vars))
-            else:
-                raise CoreError(f"Unsupported entity mapping style: {entity_style}", code="INVALID_MAPPING")
-
-        where_ctx = match_ctx.oC_Where()
-        user_filter = _compile_where(where_ctx.oC_Expression(), bind_vars) if where_ctx is not None else None
-        filters = list(base_filters)
-        if user_filter:
-            filters.append(user_filter)
-        filters.extend(prop_filters)
-        if labels and entity_style != "UNION":
-            idx_hint = _build_collection_index_hint(primary, prop_filters, resolver)
-            if idx_hint:
-                lines.append(f"  {idx_hint}")
-        for f in filters:
-            lines.append(f"  FILTER {f}")
-        return lines, {var}
-
-    # Relationship pattern (1+ hops)
-    u_var, u_labels = _extract_node_var_and_labels(node, default_var="u")
-    if node.oC_Variable() is None:
-        u_var = _anonymous_var(u_var, node, set())
-    u_prop_filters = _compile_node_pattern_properties(node, var=u_var, bind_vars=bind_vars)
-
-    u_filters: list[str] = []
-    u_source = "@@uCollection"
-    if not u_labels:
-        bind_vars["@uCollection"] = _infer_unlabeled_collection(resolver)
-    else:
-        u_primary = _pick_primary_entity_label(u_labels, resolver)
-        u_map = resolver.resolve_entity(_strip_label_backticks(u_primary))
-
-        u_source, pushed = node_scan_source(
-            u_var, u_primary, u_map, resolver, bind_vars, coll_key="@uCollection", filters=u_prop_filters
-        )
-        if pushed:
-            u_prop_filters = []
-
-        u_style = u_map.get("style")
-        if u_style == "LABEL":
-            bind_vars["uTypeField"] = u_map.get("typeField")
-            bind_vars["uTypeValue"] = u_map.get("typeValue")
-            u_filters.append(label_test(u_var, "uTypeField", "uTypeValue", u_map, bind_vars))
-            u_filters.extend(_extra_label_filters(u_var, u_labels, u_primary, bind_vars))
-        elif u_style == "MULTI_LABEL":
-            u_filters.append(_multi_label_filter(u_var, u_map, bind_vars))
-            u_filters.extend(_extra_label_filters(u_var, u_labels, u_primary, bind_vars))
-        elif u_style == "UNION":
-            u_filters.extend(_extra_label_filters(u_var, u_labels, u_primary, bind_vars))
-        elif u_style != "COLLECTION":
-            raise CoreError(f"Unsupported entity mapping style: {u_style}", code="INVALID_MAPPING")
-        else:
-            u_filters.extend(_collection_label_filters(u_var, u_labels, u_primary, bind_vars))
-
-    lines = [f"FOR {u_var} IN {u_source}"]
-    for f in u_filters:
-        lines.append(f"  FILTER {f}")
-    for f in u_prop_filters:
-        lines.append(f"  FILTER {f}")
-
-    forbidden: set[str] = {u_var}
-    current_var = u_var
-    last_indent = "    "
-    has_varlen = False
-
-    for chain in chains:
-        rel_pat = chain.oC_RelationshipPattern()
-        v_node = chain.oC_NodePattern()
-        if rel_pat is None or v_node is None:
-            raise CoreError("Invalid relationship pattern", code="UNSUPPORTED")
-
-        v_var, v_labels = _extract_node_var_and_labels(v_node, default_var="v")
-        if v_node.oC_Variable() is None:
-            v_var = _anonymous_var(v_var, v_node, forbidden)
-        # A back-reference to an already-bound node (e.g. (p)-[:R]->(m)<-[:R2]-(p))
-        # must traverse to a *fresh* variable and constrain it by _id, not re-open
-        # a FOR loop on the bound name — AQL rejects the duplicate variable
-        # ("assigned multiple times").
-        v_bound = v_var in forbidden
-        v_trav = (
-            v_var
-            if not v_bound
-            else _pick_fresh_var(_affix_name(v_var, suffix="_m"), forbidden_vars=forbidden)
-        )
-
-        v_prop_filters = _compile_node_pattern_properties(v_node, var=v_trav, bind_vars=bind_vars)
-        rel_type, rel_var, rel_range = _extract_relationship_type_and_var(rel_pat, default_var="r")
-        detail = rel_pat.oC_RelationshipDetail()
-        rel_named = detail is not None and detail.oC_Variable() is not None
-        if not rel_named:
-            rel_var = _anonymous_var(rel_var, rel_pat, forbidden)
-        elif rel_var in forbidden:
-            raise CoreError("Relationship variable must not shadow node variables", code="UNSUPPORTED")
-        if rel_var in {u_var, v_var}:
-            raise CoreError("Relationship variable must not shadow node variables", code="UNSUPPORTED")
-
-        r_prop_filters = _compile_relationship_pattern_properties(rel_pat, var=rel_var, bind_vars=bind_vars)
-        direction = _self_loop_direction(
-            _relationship_direction(rel_pat),
-            back_to_start=v_bound and v_var == current_var,
-            rel_range=rel_range,
-        )
-
-        # Resolve an unlabeled endpoint of a typed relationship from the
-        # relationship's domain/range (e.g. (m:Movie)<-[:REVIEWED]-() → Person).
-        if not v_labels and rel_type:
-            _inferred_v = resolver.infer_endpoint_label(rel_type, _relationship_direction(rel_pat))
-            if _inferred_v:
-                v_labels = [_inferred_v]
-
-        v_primary: str | None = None
-        v_map: dict[str, Any] | None = None
-        if v_labels:
-            v_primary = _pick_primary_entity_label(v_labels, resolver)
-            v_map = resolver.resolve_entity(_strip_label_backticks(v_primary))
-        r_map = _resolve_relationship_for_pattern(resolver, rel_type)
-
-        edge_key = _pick_bind_key("@edgeCollection", bind_vars)
-        bind_vars[edge_key] = r_map.get("edgeCollectionName") or r_map.get("collectionName")
-        if not _is_edge_collection_value(bind_vars[edge_key]):
-            raise CoreError(
-                f"Invalid relationship mapping collection for: {rel_type}", code="INVALID_MAPPING"
-            )
-
-        skip_coll_filter = (
-            v_primary is not None
-            and rel_type is not None
-            and resolver.edge_constrains_target(rel_type, v_primary, direction)
-        )
-        coll_filter: str | None = None
-        if not skip_coll_filter:
-            if v_map is None:
-                coll_filter = _unlabeled_target_filter(v_trav, resolver, bind_vars, "vCollection")
-            else:
-                coll_filter = node_collection_filter(
-                    v_trav, str(v_primary), v_map, resolver, bind_vars, key_base="vCollection"
-                )
-
-        rmin, rmax = rel_range
-        if rmin != rmax:
-            has_varlen = True
-        if v_bound:
-            closing = closing_hop_prefilter(
-                resolver=resolver,
-                open_var=current_var,
-                bound_var=v_var,
-                rel_type=rel_type,
-                r_map=r_map,
-                edge_key=edge_key,
-                direction=direction,
-                rel_range=rel_range,
-                bind_vars=bind_vars,
-            )
-            if closing is not None:
-                lines.append(f"  FILTER {closing}")
-        lines.append(
-            f"  FOR {v_trav}, {rel_var} IN {rmin}..{rmax} {direction} {current_var} {_aql_collection_ref(edge_key)}"
-        )
-
-        v_filters: list[str] = []
-        if v_bound:
-            v_filters.append(f"{v_trav}._id == {v_var}._id")
-        if coll_filter is not None:
-            v_filters.append(coll_filter)
-        if v_map is not None and v_primary is not None:
-            v_style = v_map.get("style")
-            if v_style == "LABEL":
-                vtf_key = _pick_bind_key("vTypeField", bind_vars)
-                vtv_key = _pick_bind_key("vTypeValue", bind_vars)
-                bind_vars[vtf_key] = v_map.get("typeField")
-                bind_vars[vtv_key] = v_map.get("typeValue")
-                v_filters.append(label_test(v_trav, vtf_key, vtv_key, v_map, bind_vars))
-                v_filters.extend(_extra_label_filters(v_trav, v_labels, v_primary, bind_vars))
-            elif v_style == "MULTI_LABEL":
-                v_filters.append(_multi_label_filter(v_trav, v_map, bind_vars))
-                v_filters.extend(_extra_label_filters(v_trav, v_labels, v_primary, bind_vars))
-            elif v_style == "UNION":
-                v_filters.extend(_extra_label_filters(v_trav, v_labels, v_primary, bind_vars))
-            elif v_style != "COLLECTION":
-                raise CoreError(f"Unsupported entity mapping style: {v_style}", code="INVALID_MAPPING")
-            else:
-                v_filters.extend(_collection_label_filters(v_trav, v_labels, v_primary, bind_vars))
-
-        r_filters: list[str] = []
-        r_style = r_map.get("style")
-        if r_style == "GENERIC_WITH_TYPE":
-            rtf_key = _pick_bind_key("relTypeField", bind_vars)
-            rtv_key = _pick_bind_key("relTypeValue", bind_vars)
-            bind_vars[rtf_key] = r_map.get("typeField")
-            bind_vars[rtv_key] = r_map.get("typeValue")
-            r_filters.append(f"{rel_var}[@{rtf_key}] == @{rtv_key}")
-        elif r_style != "DEDICATED_COLLECTION":
-            raise CoreError(f"Unsupported relationship mapping style: {r_style}", code="INVALID_MAPPING")
-
-        for f in v_filters + r_filters:
-            lines.append(f"    FILTER {f}")
-        for f in r_prop_filters:
-            lines.append(f"    FILTER {f}")
-        for f in v_prop_filters:
-            lines.append(f"    FILTER {f}")
-
-        forbidden.add(v_trav)
-        forbidden.add(v_var)
-        forbidden.add(rel_var)
-        current_var = v_trav
-        last_indent = "    "
-
-    where_ctx = match_ctx.oC_Where()
-    user_filter = _compile_where(where_ctx.oC_Expression(), bind_vars) if where_ctx is not None else None
-    if user_filter:
-        _emit_prune_and_filter(
-            user_filter,
-            current_var,
-            forbidden,
-            is_varlen=has_varlen,
-            lines=lines,
-            indent=last_indent,
-        )
-
-    return lines, forbidden
+    elem = from_selective_end(anon.oC_PatternElement(), resolver, named=path_var_name is not None)
+    compiled = _compile_pattern_element(
+        elem,
+        path_var_name=path_var_name,
+        where_ctx=match_ctx.oC_Where(),
+        resolver=resolver,
+        bind_vars=bind_vars,
+        merge_hops=False,
+    )
+    return compiled.lines, compiled.forbidden_vars
 
 
 _AGGREGATE_CALL_RE = re.compile(r"(count|avg|sum|min|max)\s*\(", re.IGNORECASE)
