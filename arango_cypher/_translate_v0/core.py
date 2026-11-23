@@ -1352,8 +1352,7 @@ def _compile_pattern_element(
                 rel_list = rel_var
                 rel_var = _pick_fresh_var(_affix_name(rel_var, suffix="_last"), forbidden_vars=forbidden_vars)
             if r_prop_filters:
-                each = _compile_relationship_pattern_properties(rel_pat, var="CURRENT", bind_vars=bind_vars)
-                r_prop_filters = [f"LENGTH({hop_path}.edges[* FILTER NOT ({c})]) == 0" for c in each]
+                r_prop_filters = _every_edge_filters(rel_pat, hop_path, bind_vars)
         direction = _self_loop_direction(
             _relationship_direction(rel_pat),
             back_to_start=v_bound and v_var == hop_start,
@@ -2572,24 +2571,6 @@ def _compile_match_multi_parts_from_parts(
             return None
         raise CoreError(f"Unsupported relationship mapping style: {r_style}", code="INVALID_MAPPING")
 
-    def extract_node_var_and_optional_labels(
-        node_pat: CypherParser.OC_NodePatternContext, *, default_var: str
-    ) -> tuple[str, list[str]]:
-        var = (
-            node_pat.oC_Variable().getText() if node_pat.oC_Variable() is not None else default_var
-        ).strip()
-        labels_ctx = node_pat.oC_NodeLabels()
-        if labels_ctx is None:
-            return var, []
-        node_labels = labels_ctx.oC_NodeLabel() or []
-        labels: list[str] = []
-        for nl in node_labels:
-            label = nl.oC_LabelName().getText().strip()
-            if not label:
-                raise CoreError("Invalid label in MATCH", code="UNSUPPORTED")
-            labels.append(label)
-        return var, labels
-
     def bind_named_path(part: Any, node_pieces: list[str], edge_pieces: list[str]) -> None:
         """``p = (…)``: ``LET p = {nodes, edges}`` from the part's hops, in pattern order."""
         if part.oC_Variable() is None:
@@ -2611,9 +2592,21 @@ def _compile_match_multi_parts_from_parts(
     # (``MATCH (a)-->(b) MATCH (c)-->(d)`` may bind one edge twice): grouped by
     # the clause each part belongs to.
     unique_rel_vars: dict[int, list[str]] = {}
+    # Variable-length hops' edge lists (``...path.edges``), by clause likewise.
+    unique_rel_lists: dict[int, list[str]] = {}
     # A shortestPath() part needs its endpoints bound: compiled after the others.
     shortest_parts = [part for part in parts if shortest_path_pattern(part) is not None]
     parts = [part for part in parts if shortest_path_pattern(part) is None]
+    # How many relationships each clause has: a variable-length one keeps its
+    # edge list when another could share an edge with it.
+    clause_hops: dict[int, int] = {}
+    for part in parts:
+        anon_part = part.oC_AnonymousPatternPart()
+        if anon_part is not None:
+            key = id(_enclosing_match(part))
+            clause_hops[key] = clause_hops.get(key, 0) + len(
+                anon_part.oC_PatternElement().oC_PatternElementChain() or []
+            )
     for idx, part in enumerate(parts):
         anon = part.oC_AnonymousPatternPart()
         if anon is None:
@@ -2635,7 +2628,11 @@ def _compile_match_multi_parts_from_parts(
 
         # Case 1: node-only pattern part: (u:Label {props})
         if not chains:
-            var, labels = extract_node_var_and_optional_labels(node, default_var=f"n{idx + 1}")
+            var, labels = _extract_node_var_and_labels(node, default_var=f"n{idx + 1}")
+            if node.oC_Variable() is None:
+                # Never a name the query gives another variable: ``MATCH (:User), (n1:User)``
+                # would otherwise join the two (``_anonymous_var``).
+                var = _anonymous_var(var, node, forbidden)
             prop_filters = _compile_node_pattern_properties(node, var=var, bind_vars=bind_vars)
 
             if var in forbidden:
@@ -2701,7 +2698,9 @@ def _compile_match_multi_parts_from_parts(
             continue
 
         # Case 2: relationship pattern part: (u)-[:T]->(v) ... (1+ hops)
-        u_var, u_labels = extract_node_var_and_optional_labels(node, default_var=f"u{idx + 1}")
+        u_var, u_labels = _extract_node_var_and_labels(node, default_var=f"u{idx + 1}")
+        if node.oC_Variable() is None:
+            u_var = _anonymous_var(u_var, node, forbidden)
         u_prop_filters = _compile_node_pattern_properties(node, var=u_var, bind_vars=bind_vars)
 
         # Bind (or refine) start node u.
@@ -2759,6 +2758,7 @@ def _compile_match_multi_parts_from_parts(
                 bound_labels[u_var] = u_primary
 
         current_u = u_var
+        hop_start = u_var  # the Cypher node each hop leaves from
         path_nodes: list[str] = [f"[{u_var}]"]
         path_edges: list[str] = []
         for hop_i, chain in enumerate(chains):
@@ -2767,9 +2767,9 @@ def _compile_match_multi_parts_from_parts(
             if rel_pat is None or v_node is None:
                 raise CoreError("Invalid relationship pattern", code="UNSUPPORTED")
 
-            v_var, v_labels = extract_node_var_and_optional_labels(
-                v_node, default_var=f"v{idx + 1}_{hop_i + 1}"
-            )
+            v_var, v_labels = _extract_node_var_and_labels(v_node, default_var=f"v{idx + 1}_{hop_i + 1}")
+            if v_node.oC_Variable() is None:
+                v_var = _anonymous_var(v_var, v_node, forbidden)
             v_bound = v_var in forbidden
             v_trav = (
                 v_var
@@ -2794,6 +2794,8 @@ def _compile_match_multi_parts_from_parts(
                     v_labels = [_inferred_v]
             detail = rel_pat.oC_RelationshipDetail()
             rel_is_named = detail is not None and detail.oC_Variable() is not None
+            if not rel_is_named:
+                rel_var = _anonymous_var(rel_var, rel_pat, forbidden)
             r_prop_filters = _compile_relationship_pattern_properties(
                 rel_pat, var=rel_var, bind_vars=bind_vars
             )
@@ -2804,7 +2806,13 @@ def _compile_match_multi_parts_from_parts(
                     code="NOT_IMPLEMENTED",
                 )
 
-            direction = _relationship_direction(rel_pat)
+            # An undirected hop back to its own start matches each self-loop
+            # once, as in a single pattern (``_self_loop_direction``).
+            direction = _self_loop_direction(
+                _relationship_direction(rel_pat),
+                back_to_start=v_bound and v_var == hop_start,
+                rel_range=rel_range,
+            )
 
             # Relationship mapping (edge collection + optional type filter)
             r_map = _resolve_relationship_for_pattern(resolver, rel_type)
@@ -2816,12 +2824,30 @@ def _compile_match_multi_parts_from_parts(
                 )
 
             rmin, rmax = rel_range
+            # A variable-length relationship is the list of its edges, as in a
+            # single pattern: the traversal's path supplies them, every one
+            # must match the pattern's properties (``_every_edge_filters``), a
+            # used ``r`` names the list, and the list joins the uniqueness check.
+            is_varlen = detail is not None and detail.oC_RangeLiteral() is not None
+            rel_used = rel_is_named and is_referenced(rel_var, detail.oC_Variable())
+            rel_list: str | None = None
             hop_path = ""
-            if part.oC_Variable() is not None:
-                # A named path collects every hop's vertices and edges.
+            if part.oC_Variable() is not None or (
+                is_varlen and (rel_used or r_prop_filters or clause_hops[id(_enclosing_match(part))] > 1)
+            ):
+                # A named path also collects every hop's vertices and edges.
                 hop_path = _pick_fresh_var(f"_pp{idx + 1}_{hop_i + 1}", forbidden_vars=forbidden)
+                forbidden.add(hop_path)
                 path_nodes.append(f"SLICE({hop_path}.vertices, 1)")
                 path_edges.append(f"{hop_path}.edges")
+                if is_varlen:
+                    if rel_used:
+                        rel_list = rel_var
+                        rel_var = _pick_fresh_var(
+                            _affix_name(rel_var, suffix="_last"), forbidden_vars=forbidden
+                        )
+                    if r_prop_filters:
+                        r_prop_filters = _every_edge_filters(rel_pat, hop_path, bind_vars)
             trav_vars = f"{v_trav}, {rel_var}, {hop_path}" if hop_path else f"{v_trav}, {rel_var}"
             if v_bound:
                 closing = closing_hop_prefilter(
@@ -2840,6 +2866,9 @@ def _compile_match_multi_parts_from_parts(
             add_for(
                 f"FOR {trav_vars} IN {rmin}..{rmax} {direction} {current_u} {_aql_collection_ref(edge_key)}"
             )
+            if rel_list is not None:
+                lines.append(f"{indent_filter_line()}LET {rel_list} = {hop_path}.edges")
+                forbidden.add(rel_list)
 
             if v_bound:
                 add_filter(f"{v_trav}._id == {v_var}._id")
@@ -2864,18 +2893,25 @@ def _compile_match_multi_parts_from_parts(
             # separate traversals do not enforce it, so each single-edge hop
             # joins the check, named or not. An unnamed variable-length hop
             # binds only its last edge here, so no complete check is possible.
-            if rel_is_named or rel_range == (1, 1):
-                unique_rel_vars.setdefault(id(_enclosing_match(part)), []).append(rel_var)
+            clause = id(_enclosing_match(part))
+            if is_varlen and hop_path:
+                unique_rel_lists.setdefault(clause, []).append(f"...{hop_path}.edges")
+            elif rel_range == (1, 1):
+                unique_rel_vars.setdefault(clause, []).append(rel_var)
             if not v_bound:
                 forbidden.add(v_var)
                 if v_labels:
                     bound_labels[v_var] = _pick_primary_entity_label(v_labels, resolver)
 
             current_u = v_trav
+            hop_start = v_var
         bind_named_path(part, path_nodes, path_edges)
 
-    for clause_rel_vars in unique_rel_vars.values():
-        _emit_relationship_uniqueness(clause_rel_vars, lines, indent=indent_filter_line())
+    for clause in {**unique_rel_vars, **unique_rel_lists}:
+        singles = unique_rel_vars.get(clause, [])
+        _emit_relationship_uniqueness(singles, lines, indent=indent_filter_line())
+        for filt in edge_uniqueness_across([[e] for e in unique_rel_lists.get(clause, [])], singles=singles):
+            add_filter(filt)
 
     for part in shortest_parts:
         env = {v: v for v in forbidden}
@@ -3112,6 +3148,7 @@ def _compile_bound_part(
         r_prop_filters = _compile_relationship_pattern_properties(
             rel_pat, var=r_aql, bind_vars=bind_vars, var_env=out_env
         )
+        env_before_hop = dict(out_env)
 
         if v_named and not v_is_backref:
             out_env[v_cy] = v_aql
@@ -3166,9 +3203,12 @@ def _compile_bound_part(
         trav_vars = f"{v_aql}, {r_aql}"
         named_list = rel_named and not r_is_backref and rel_range != (1, 1)
         hop_path: str | None = None
-        if rel_range != (1, 1) and (path_name is not None or named_list):
+        if rel_range != (1, 1) and (path_name is not None or named_list or r_prop_filters):
             hop_path = _pick_fresh_var("_hop_path", forbidden_vars=forbidden_vars)
             trav_vars += f", {hop_path}"
+            if r_prop_filters:
+                # Every edge must match, not only the traversal's last one.
+                r_prop_filters = _every_edge_filters(rel_pat, hop_path, bind_vars, var_env=env_before_hop)
             node_segments.append(f"SLICE({hop_path}.vertices, 1)")
             edge_segments.append(f"{hop_path}.edges")
         else:
@@ -5249,6 +5289,22 @@ def _compile_node_pattern_properties(
     return out
 
 
+def _every_edge_filters(
+    rel_pat: CypherParser.OC_RelationshipPatternContext,
+    hop_path: str,
+    bind_vars: dict[str, Any],
+    var_env: dict[str, str] | None = None,
+) -> list[str]:
+    """A variable-length relationship's inline properties, checked on every edge
+    of the traversal path *hop_path* (``-[*1..2 {w: 1}]->`` matches only paths
+    whose edges all have w = 1). Every MATCH compiler uses this: a copy that
+    checked the traversal's last edge only matched paths it should not."""
+    each = _compile_relationship_pattern_properties(
+        rel_pat, var="CURRENT", bind_vars=bind_vars, var_env=var_env
+    )
+    return [f"LENGTH({hop_path}.edges[* FILTER NOT ({c})]) == 0" for c in each]
+
+
 def _compile_relationship_pattern_properties(
     rel_pat: CypherParser.OC_RelationshipPatternContext,
     *,
@@ -5857,8 +5913,12 @@ def _compile_pattern_hops(
         direction = _relationship_direction(rel_pat)
         r_map = _resolve_relationship_for_pattern(resolver, rel_type)
         typed_edges = r_map.get("style") == "GENERIC_WITH_TYPE"
-        needs_path = path_var is not None or (not single and introduced_rel)
+        r_props = _compile_relationship_pattern_properties(rel_pat, var=loop_e, bind_vars=bind_vars)
+        needs_path = path_var is not None or (not single and (introduced_rel or bool(r_props)))
         hop_path = f"_{prefix}_p{suffix}" if needs_path else None
+        if r_props and not single and hop_path is not None:
+            # Every edge of a variable-length hop must match, not only the last.
+            r_props = _every_edge_filters(rel_pat, hop_path, bind_vars)
 
         edge_key = _pick_bind_key(f"@{prefix}Edge", bind_vars)
         bind_vars[edge_key] = r_map.get("edgeCollectionName") or r_map.get("collectionName")
@@ -5872,7 +5932,7 @@ def _compile_pattern_hops(
             # ``_guard_varlength_edge_types`` extends this last-edge test to
             # every edge of a variable-length hop with a PRUNE.
             filters.append(f"{loop_e}[@{rtf}] == @{rtv}")
-        filters += _compile_relationship_pattern_properties(rel_pat, var=loop_e, bind_vars=bind_vars)
+        filters += r_props
 
         if single:
             # Cypher never matches one relationship twice within a pattern.
