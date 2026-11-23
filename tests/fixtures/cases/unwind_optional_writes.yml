@@ -1,0 +1,77 @@
+version: 1
+cases:
+  - id: C1421
+    name: UNWIND then OPTIONAL MATCH null-extends each row, not the whole result
+    mapping_fixture: pg
+    extensions_enabled: false
+    cypher: |
+      UNWIND ['alice', 'zed'] AS name
+      OPTIONAL MATCH (u:User {name: name})
+      RETURN name, u.name AS found
+    expected:
+      aql: |
+        FOR name IN ['alice','zed']
+          LET _opt_rows = (
+          FOR u IN @@tailCollection
+            FILTER (name != null AND u.name == name)
+            RETURN {u: u}
+            )
+            FOR _opt_row IN (LENGTH(_opt_rows) > 0 ? _opt_rows : [{}])
+              LET u = _opt_row.u
+              RETURN {name: name, found: u.name}
+      bind_vars:
+        "@tailCollection": "users"
+  - id: C1422
+    name: UNWIND before and after a MATCH both loop; a scalar unwinds as one row
+    mapping_fixture: pg
+    extensions_enabled: false
+    cypher: |
+      UNWIND 5 AS x
+      MATCH (u:User)
+      UNWIND [3, 4] AS y
+      RETURN x, y, u.name AS name
+    expected:
+      aql: |
+        FOR x IN [5]
+          FOR u IN @@collection
+            FOR y IN [3,4]
+              RETURN {x: x, y: y, name: u.name}
+      bind_vars:
+        "@collection": "users"
+  - id: C1423
+    name: OPTIONAL MATCH ... SET with no RETURN ends on the write
+    mapping_fixture: pg
+    extensions_enabled: false
+    cypher: |
+      OPTIONAL MATCH (u:User {name: 'bob'})
+      SET u.flag = true
+    expected:
+      aql: |
+        LET _opt_rows = (
+        FOR u IN @@collection
+          FILTER (u.name == 'bob')
+          RETURN {u: u}
+          )
+          FOR _opt_row IN (LENGTH(_opt_rows) > 0 ? _opt_rows : [{}])
+            LET u = _opt_row.u
+            FOR _w IN (u == null ? [] : [u]) UPDATE _w WITH {flag: true} IN @@collection
+      bind_vars:
+        "@collection": "users"
+  - id: C1424
+    name: a relationship MERGE after node MERGEs matches the pattern's properties
+    mapping_fixture: pg
+    extensions_enabled: false
+    cypher: |
+      MERGE (a:Person {id: 1})
+      MERGE (b:Place {id: 2})
+      MERGE (a)-[r:FOLLOWS {since: 2020}]->(b)
+    expected:
+      aql: |
+        LET a = FIRST(UPSERT {id: 1} INSERT {id: 1} UPDATE {} IN @@collection RETURN NEW)
+        LET b = FIRST(UPSERT {id: 2} INSERT {id: 2} UPDATE {} IN @@collection2 RETURN NEW)
+        LET r = FIRST(UPSERT {_from: a._id, _to: b._id, since: 2020} INSERT {_from: a._id, _to: b._id, since: 2020} UPDATE {} IN @@edgeCollection RETURN NEW)
+        RETURN null
+      bind_vars:
+        "@collection": "persons"
+        "@collection2": "places"
+        "@edgeCollection": "follows"

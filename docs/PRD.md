@@ -875,9 +875,18 @@ unnamed variable-length hop there binds only its last edge, so it is left out.
 It holds within one MATCH clause only: `MATCH (u)-[a]->(v) MATCH (w)-[b]->(v)`
 may bind one edge to `a` and `b`. An empty interval (`*2..1`, `*..0`) matches
 nothing. `MATCH … UNWIND … RETURN` runs the UNWIND before the projection's
-`COLLECT`/`SORT`, and an UNWIND variable is in scope for `RETURN *`. A query
-whose only MATCHes are `OPTIONAL` projects its RETURN over one row of null
-variables when nothing matches (`n.missing IS NULL` is true).
+`COLLECT`/`SORT`, and an UNWIND variable is in scope for `RETURN *`; an
+UNWIND both before and after the MATCH keeps both loops (the second used to be
+dropped). Every UNWIND unwinds as Cypher does — `null` to no rows, a value
+that is not a list to one row — before a MATCH, a CREATE or a MERGE too
+(`unwind_source`; an AQL FOR over either is ERR 1563). A query whose only
+MATCHes are `OPTIONAL` runs its reading clauses in source order
+(`_translate_optional_only`): an `UNWIND` or procedure `CALL` before an
+`OPTIONAL MATCH` feeds it one row at a time, and each row it does not match
+is null-extended (`UNWIND ['a', 'z'] AS x OPTIONAL MATCH (n {name: x})` is
+two rows; the whole result used to be null-extended once, losing rows). With
+no clause before it, it projects its RETURN over one row of null variables
+when nothing matches (`n.missing IS NULL` is true).
 
 **Where a pattern starts (WP-44).** A pattern compiles from its first node
 unless reading it backwards, with each relationship's direction flipped, starts
@@ -940,7 +949,10 @@ whole-map action applies in order with the property actions (`ON CREATE SET
 r = a` copies node a's properties, `ON MATCH SET r += {w: null}` merges a map;
 the UPDATE becomes a REPLACE of `OLD`, and `_from`/`_to`/the type field
 survive a `=`; `merge_docs.py`); a property set to the literal `null` is left
-out of the INSERT and removed on match (`keepNull: false`). A named path
+out of the INSERT and removed on match (`keepNull: false`), on a node MERGE
+as on a relationship MERGE (a node MERGE used to store it). An ON CREATE /
+ON MATCH SET of a nested property (`n.a.b`) is refused, as SET refuses it; it
+used to write `n.b`. A named path
 (`MERGE p = (a {num: 1})`, `MERGE p = (a)-[r:T]->(b)`) is bound to the merged
 node, or to the endpoints and relationship in pattern order, for a single
 MERGE of a node or one hop; beside another MERGE or over a longer pattern it
@@ -953,7 +965,8 @@ show it without the SET, is refused (`merge_bindings.py`). An item on a
 variable the MERGE neither writes nor binds as an endpoint stays refused. A
 relationship MERGE matches on the relationship's properties as well as its
 endpoints and type (`MERGE (a)-[:T {name: 'r2'}]->(b)` does not match an
-`r1` edge; it used to). A relationship MERGE whose endpoints no earlier
+`r1` edge; it used to), including one after node MERGEs in the same query
+(`MERGE (a) MERGE (b) MERGE (a)-[:T {since: 2020}]->(b)`). A relationship MERGE whose endpoints no earlier
 clause binds merges the whole pattern, as openCypher does, when it is the
 query's first clause: the pattern is read first (`_merge_found`), and if it
 is missing both nodes and the relationship are created — one INSERT per node
@@ -965,7 +978,9 @@ compile to AQL reading undefined variables. A
 document, after the ON CREATE / ON MATCH items; any other SET after a MERGE
 is refused); `FOREACH` (with `SET`, and — newly — `CREATE` / `DELETE`); and `WITH … SET`/`DELETE`/`REMOVE` on MATCH-bound document variables
 (including identity aliases such as `WITH p AS x`, and relationship variables
-from traversals).
+from traversals). `OPTIONAL MATCH … SET` / `REMOVE` / `DELETE` with no RETURN
+ends on the null-guarded write itself (`end_on_write`), since AQL ends a query
+with RETURN or a write, not a LET (ERR 1501).
 
 A query whose only updating clauses are `DELETE` / `DETACH DELETE` reads
 before it writes. Its reading clauses (any `MATCH`, `OPTIONAL MATCH` and
