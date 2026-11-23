@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from arango_query_core.mapping import MappingBundle
 from arango_query_core.nl.providers import (
     LLMProvider,
-    _get_default_provider,
+    get_llm_provider,
 )
 
 from .postconditions import (
@@ -1259,6 +1259,17 @@ def _generated_bank_paths() -> list[Path]:
     return found
 
 
+class _NoExamplesRetriever:
+    """A few-shot ``Retriever`` (the public protocol in
+    ``arango_query_core.nl.fewshot``) that finds no example: the default index
+    when ``rank_bm25`` is not installed. Kept here rather than importing the
+    library's private no-op class, whose removal would silently turn the whole
+    index off (the import sits inside the ``try`` below)."""
+
+    def retrieve(self, question: str, k: int = 3) -> list[tuple[str, str]]:
+        return []
+
+
 def _get_default_fewshot_index() -> FewShotIndex | None:
     """Lazily build the default FewShotIndex from shipped corpora + user
     corrections.
@@ -1283,7 +1294,7 @@ def _get_default_fewshot_index() -> FewShotIndex | None:
     try:
         from pathlib import Path
 
-        from arango_query_core.nl.fewshot import BM25Retriever, FewShotIndex, Retriever, _NoopRetriever
+        from arango_query_core.nl.fewshot import BM25Retriever, FewShotIndex, Retriever
 
         corpora_dir = Path(__file__).parent / "corpora"
         paths = sorted(corpora_dir.glob("*.yml")) + _generated_bank_paths()
@@ -1308,7 +1319,7 @@ def _get_default_fewshot_index() -> FewShotIndex | None:
             retriever: Retriever = BM25Retriever(combined)
         except ImportError as exc:
             logger.info("rank_bm25 not installed; FewShotIndex degrades to no-op: %s", exc)
-            retriever = _NoopRetriever()
+            retriever = _NoExamplesRetriever()
         _DEFAULT_FEWSHOT_INDEX = FewShotIndex(retriever, examples=combined)
     except Exception as exc:
         logger.info("FewShotIndex initialization failed: %s", exc)
@@ -1482,7 +1493,7 @@ def nl_to_cypher(
     graph_intent = _detect_graph_intent(question)
 
     if use_llm:
-        provider = llm_provider or _get_default_provider()
+        provider = llm_provider or get_llm_provider()
         if provider is not None:
             resolved_lines: list[str] = []
             index_advisories: list[dict[str, Any]] = []
@@ -1776,7 +1787,7 @@ def suggest_nl_queries(
         bundle = mapping
 
     if use_llm:
-        provider = llm_provider or _get_default_provider()
+        provider = llm_provider or get_llm_provider()
         if provider is not None:
             llm_out = _llm_suggest_nl_queries(bundle, provider, count=count)
             if llm_out:
