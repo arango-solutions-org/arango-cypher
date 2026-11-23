@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from arango_query_core.mapping import MappingBundle
-from arango_query_core.nl.providers import LLMProvider, _get_default_provider
+from arango_query_core.nl.providers import LLMProvider, get_llm_provider
 
 from ._core import _escape_label, _property_quality_hint
 from .postconditions import Postcondition
@@ -726,7 +726,7 @@ def nl_to_aql(
 
     schema_summary = _build_physical_schema_summary(bundle)
 
-    base_provider = llm_provider or _get_default_provider()
+    base_provider = llm_provider or get_llm_provider()
     if base_provider is None:
         return NL2AqlResult(
             aql="",
