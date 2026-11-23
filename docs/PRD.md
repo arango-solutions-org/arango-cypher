@@ -440,6 +440,19 @@ direction: `-[:R]-` matches both orientations. Until 2026-11 a relationship whos
 average fan-out and fan-in differed more than five times was narrowed to one of
 them, and a person's messages reached over `-[:HAS_CREATOR]-` came back empty.
 
+**Edge ends in the NL→AQL schema summary.** Each edge collection is described to
+the model as `Connects: A('a') -> B('b')`, from its `_from` side to its `_to`
+side. The ends come from the physical relationship's `domain`/`range` first and,
+where those are missing, from the conceptual relationship's
+`fromEntity`/`toEntity`, which is where the schema analyzer's export keeps them.
+A polymorphic end lists every member (`Post|Comment('post'|'comment')`); an end
+nobody knows, including the analyzer's unresolved `"Any"`, prints as `?('?')`.
+The direction hint follows that line: OUTBOUND from an `A` document, INBOUND from
+a `B` document, whatever the cardinality. Until 2026-11 the summary read only the
+physical ends, so every analyzer-derived edge printed `?('?') -> ?('?')`, a
+list-valued end raised `TypeError`, and the hint derived direction from
+cardinality, which walks every child → parent edge the wrong way.
+
 ### 7.3 Change detection & two-tier cache
 
 Two fingerprints drive a cheap read-only probe: a **shape fingerprint** (collection

@@ -239,8 +239,10 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
             edge_col = rel.get("edgeCollectionName", rtype)
             style = rel.get("style", "DEDICATED_COLLECTION")
             cs_from, cs_to = cs_ends.get(rtype, (None, None))
-            domain = rel.get("domain") or cs_from or "?"
-            range_ = rel.get("range") or cs_to or "?"
+            domain_labels = _end_labels(rel.get("domain")) or _end_labels(cs_from)
+            range_labels = _end_labels(rel.get("range")) or _end_labels(cs_to)
+            domain, domain_col = _render_end(domain_labels, pm)
+            range_, range_col = _render_end(range_labels, pm)
             props = rel.get("properties", {})
             # ``_fromType`` / ``_toType`` are denormalised *node*-type
             # fields on the edge (the kind of the source / target vertex).
@@ -267,9 +269,6 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
                     f"GROUP BY this field to count relationship types)]"
                 )
 
-            domain_col = _resolve_collection_name(domain, pm) or domain
-            range_col = _resolve_collection_name(range_, pm) or range_
-
             rs = rel_stats.get(rtype, {})
             cardinality_info = ""
             if isinstance(rs, dict) and rs.get("edge_count"):
@@ -283,10 +282,7 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
                 cardinality_info = "\n    Cardinality: " + ", ".join(parts)
 
             lines.append(f"  Edge collection '{edge_col}' (relationship: {_escape_label(rtype)}){type_info}")
-            lines.append(
-                f"    Connects: {_escape_label(domain)}('{domain_col}') -> "
-                f"{_escape_label(range_)}('{range_col}')"
-            )
+            lines.append(f"    Connects: {domain}({domain_col}) -> {range_}({range_col})")
             if prop_str != "no properties":
                 lines.append(f"    Fields: {prop_str}")
             if cardinality_info:
@@ -299,8 +295,8 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
             if not isinstance(r, dict):
                 continue
             rtype = r.get("type", "")
-            from_e = r.get("fromEntity", "?")
-            to_e = r.get("toEntity", "?")
+            from_e = _render_end(_end_labels(r.get("fromEntity")), pm)[0]
+            to_e = _render_end(_end_labels(r.get("toEntity")), pm)[0]
             edge_col = ""
             if isinstance(pm.get("relationships"), dict):
                 pm_rel = pm["relationships"].get(rtype, {})
@@ -337,6 +333,24 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
         )
 
     return "\n".join(lines)
+
+
+# The analyzer writes this for an end it could not resolve (UNRESOLVED_ENDPOINT).
+_UNRESOLVED_END = "Any"
+
+
+def _end_labels(end: Any) -> list[str]:
+    """An edge end's entity labels: a polymorphic end is a list; None and "Any" are unknown."""
+    members = end if isinstance(end, list) else [end]
+    return [m for m in members if isinstance(m, str) and m and m != _UNRESOLVED_END]
+
+
+def _render_end(labels: list[str], pm: dict[str, Any]) -> tuple[str, str]:
+    """``(labels, collections)`` for a Connects line, e.g. ``("Post|Comment", "'post'|'comment'")``."""
+    if not labels:
+        return "?", "'?'"
+    cols = (f"'{_resolve_collection_name(label, pm) or label}'" for label in labels)
+    return "|".join(_escape_label(label) for label in labels), "|".join(cols)
 
 
 def _resolve_collection_name(entity_label: str, pm: dict[str, Any]) -> str | None:
