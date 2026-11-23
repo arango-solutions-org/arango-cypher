@@ -183,11 +183,11 @@ _UNKNOWN_FUNCTION_HINT = (
 )
 
 
-def _edge_ends(bundle: MappingBundle) -> dict[str, tuple[Any, Any]]:
-    """``relationship type -> (domain label, range label)``, either may be None.
+def _edge_ends(bundle: MappingBundle) -> dict[str, tuple[list[str], list[str]]]:
+    """``relationship type -> (domain labels, range labels)``; an unknown end is ``[]``.
 
-    The analyzer's export keeps an edge's ends only on the conceptual relationship;
-    fall back to them, as schema_acquire's statistics do.
+    Physical ``domain``/``range`` first; the analyzer's export keeps an edge's ends only
+    on the conceptual relationship, so fall back to them, as schema_acquire's statistics do.
     """
     cs_ends = {
         r.get("type"): (r.get("fromEntity"), r.get("toEntity"))
@@ -201,21 +201,35 @@ def _edge_ends(bundle: MappingBundle) -> dict[str, tuple[Any, Any]]:
     for rtype, rel in rels.items():
         if isinstance(rel, dict):
             cs_from, cs_to = cs_ends.get(rtype, (None, None))
-            ends[rtype] = (rel.get("domain") or cs_from, rel.get("range") or cs_to)
+            ends[rtype] = (
+                _end_labels(rel.get("domain")) or _end_labels(cs_from),
+                _end_labels(rel.get("range")) or _end_labels(cs_to),
+            )
     return ends
 
 
 def _edge_endpoints(bundle: MappingBundle) -> dict[str, tuple[str, str]]:
-    """``edge collection -> (from collection, to collection)`` where both ends are entities."""
+    """``edge collection -> (from collection, to collection)``, only where that is unambiguous.
+
+    An edge collection is kept when every relationship type stored in it has one known
+    entity at each end and they all resolve to the same two collections. A polymorphic
+    (list) end, an unknown end, or relationship types sharing the collection with
+    different ends leave it out: the direction check then has nothing to assert.
+    """
     pm = bundle.physical_mapping
     ents = pm.get("entities") or {}
+    by_collection: dict[str, set[tuple[str, str] | None]] = {}
+    for rtype, (d, r) in _edge_ends(bundle).items():
+        pair = None
+        if len(d) == 1 and len(r) == 1 and d[0] in ents and r[0] in ents:
+            pair = (ents[d[0]].get("collectionName", d[0]), ents[r[0]].get("collectionName", r[0]))
+        by_collection.setdefault(pm["relationships"][rtype].get("edgeCollectionName", rtype), set()).add(pair)
     return {
-        pm["relationships"][rtype].get("edgeCollectionName", rtype): (
-            ents[d].get("collectionName", d),
-            ents[r].get("collectionName", r),
-        )
-        for rtype, (d, r) in _edge_ends(bundle).items()
-        if d in ents and r in ents
+        col: pair
+        for col, pairs in by_collection.items()
+        if len(pairs) == 1
+        for pair in pairs
+        if pair is not None
     }
 
 
@@ -307,9 +321,9 @@ def _build_physical_schema_summary(bundle: MappingBundle) -> str:
                 continue
             edge_col = rel.get("edgeCollectionName", rtype)
             style = rel.get("style", "DEDICATED_COLLECTION")
-            domain_end, range_end = ends.get(rtype, (None, None))
-            domain, domain_col = _render_end(_end_labels(domain_end), pm)
-            range_, range_col = _render_end(_end_labels(range_end), pm)
+            domain_labels, range_labels = ends.get(rtype, ([], []))
+            domain, domain_col = _render_end(domain_labels, pm)
+            range_, range_col = _render_end(range_labels, pm)
             props = rel.get("properties", {})
             # ``_fromType`` / ``_toType`` are denormalised *node*-type
             # fields on the edge (the kind of the source / target vertex).
@@ -599,6 +613,13 @@ def _aql_tenant_scope_satisfied(
     return False
 
 
+class _ServerCheckError(Exception):
+    """The ``explain`` callable itself failed (e.g. the server is unreachable)."""
+
+    def __init__(self, cause: Exception) -> None:
+        super().__init__(f"{type(cause).__name__}: {cause}")
+
+
 def _call_llm_for_aql(
     question: str,
     schema_summary: str,
@@ -664,7 +685,10 @@ def _call_llm_for_aql(
             else:
                 # The server's parser replaces the regex check, which passes unknown
                 # functions and rejects valid queries such as ``FOR x IN <variable>``.
-                server_error = explain(aql) if aql.strip() else "empty AQL string"
+                try:
+                    server_error = explain(aql) if aql.strip() else "empty AQL string"
+                except Exception as e:
+                    raise _ServerCheckError(e) from e
                 ok, err_msg = server_error is None, f"ArangoDB rejected it: {server_error}"
                 if server_error and "unknown function" in server_error.lower():
                     err_msg += _UNKNOWN_FUNCTION_HINT
@@ -720,6 +744,8 @@ def _call_llm_for_aql(
                 last_error,
                 aql[:120],
             )
+        except _ServerCheckError:
+            raise  # not the model's fault: retrying would only spend LLM calls
         except Exception as e:
             logger.warning("LLM AQL call failed (attempt %d): %s", attempt + 1, e)
             last_error = str(e)
@@ -797,7 +823,8 @@ def nl_to_aql(
             handle. ``question`` may still be passed for logging/context.
         explain: Optional server check: returns the server's error for a candidate
             query, or ``None`` when it parses and plans. Replaces the regex check,
-            and the model repairs against its message.
+            and the model repairs against its message. If it raises, no query is
+            returned (``method="server_check_failed"``) and no retry is spent.
     """
     if postconditions:
         # This path generates AQL directly, so there is no Cypher for a
@@ -842,18 +869,28 @@ def nl_to_aql(
 
     known_collections = _collect_known_collections(bundle)
     tenant_manifest = analyze_tenant_scope(bundle) if tenant_context else None
-    result = _call_llm_for_aql(
-        question,
-        schema_summary,
-        base_provider,
-        max_retries=max_retries,
-        known_collections=known_collections,
-        tenant_context=tenant_context,
-        tenant_manifest=tenant_manifest,
-        cypher=cypher,
-        explain=explain,
-        endpoints=_edge_endpoints(bundle),
-    )
+    try:
+        result = _call_llm_for_aql(
+            question,
+            schema_summary,
+            base_provider,
+            max_retries=max_retries,
+            known_collections=known_collections,
+            tenant_context=tenant_context,
+            tenant_manifest=tenant_manifest,
+            cypher=cypher,
+            explain=explain,
+            endpoints=_edge_endpoints(bundle),
+        )
+    except _ServerCheckError as e:
+        logger.warning("AQL server check failed: %s", e)
+        return NL2AqlResult(
+            aql="",
+            bind_vars={},
+            explanation=f"The AQL server check failed, so no query was returned: {e}",
+            confidence=0.0,
+            method="server_check_failed",
+        )
     if result and result.aql:
         return result
 

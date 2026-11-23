@@ -7,7 +7,10 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Callable
 
+from arango.database import StandardDatabase
+from arango.exceptions import AQLQueryExplainError
 from fastapi import Depends, HTTPException
 
 from ..._arango_sync import sync
@@ -291,6 +294,25 @@ def nl_samples_endpoint(
     return {"queries": queries, "elapsed_ms": elapsed_ms}
 
 
+def _server_explain(db: StandardDatabase) -> Callable[[str], str | None]:
+    """``nl_to_aql``'s server check on the connected database: the EXPLAIN error, or ``None``.
+
+    Only a refusal of the query itself (400: syntax, unknown function; 404: unknown
+    collection) goes back to the model; anything else raises and is reported as itself.
+    """
+
+    def explain(aql: str) -> str | None:
+        try:
+            db.aql.explain(aql)
+        except AQLQueryExplainError as e:
+            if e.http_code in (400, 404):
+                return str(e)
+            raise
+        return None
+
+    return explain
+
+
 @app.post("/nl2aql")
 def nl2aql_endpoint(
     req: NL2AqlRequest,
@@ -315,12 +337,14 @@ def nl2aql_endpoint(
         endpoint="/nl2aql",
     )
 
+    session = auth_session or bound_session
     t0 = time.perf_counter()
     result = nl_to_aql(
         req.question,
         mapping=req.mapping,
         tenant_context=tenant_ctx,
         cypher=req.cypher,
+        explain=_server_explain(session.db) if session is not None else None,
     )
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
 

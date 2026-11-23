@@ -224,6 +224,26 @@ lacks a construct or an AQL-specific feature is required. It is structurally wea
 from the primary path. Crucially, it is **no less safe**: the multi-tenant
 security boundary (§7, Layer 5) applies to *every* execute path.
 
+**Checking generated AQL.** Each candidate query is checked before it is
+returned, and a rejected one goes back to the model with the reason, within the
+retry budget. When the caller passes `explain` (a callable that returns the
+server's error for a query, or `None` when it parses and plans), the server's
+EXPLAIN replaces the structural regex check: the regex passed SQL functions AQL
+does not have and rejected valid queries such as `FOR x IN <variable>`. An
+"unknown function" error adds a one-line hint naming AQL's equivalents (`/`,
+`DATE_YEAR()`, `TO_NUMBER()`, `?:`, `DATE_NOW()`). If `explain` itself fails, for
+example because the server is unreachable, `nl_to_aql` returns no query with
+`method="server_check_failed"` and the failure in the explanation, and spends no
+further LLM calls. `POST /nl2aql` passes an `explain` backed by the session's
+database when the request has one, and keeps the regex check otherwise; only a
+400 or 404 refusal goes back to the model. A direction check is always on: a
+traversal that starts from a `FOR v IN <collection>` variable or a
+`"collection/key"` literal at the end its direction walks into is sent back with
+the direction to use. It acts only on clear cases: the edge collection's every
+relationship type has one known entity at each end and all of them name the same
+two different collections. A polymorphic end, an unknown end, or relationship
+types sharing a collection with different ends leave that collection unchecked.
+
 ---
 
 ## 6. Product surfaces
