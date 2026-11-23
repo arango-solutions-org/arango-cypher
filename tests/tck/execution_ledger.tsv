@@ -415,7 +415,7 @@ passed	clauses/match/Match4/[2] Simple variable length pattern
 passed	clauses/match/Match4/[3] Zero-length variable length pattern in the middle of the pattern
 execution_failure	clauses/match/Match4/[4] Matching longer variable length paths
 passed	clauses/match/Match4/[5] Matching variable length pattern with property predicate
-execution_failure	clauses/match/Match4/[6] Matching variable length patterns from a bound node
+passed	clauses/match/Match4/[6] Matching variable length patterns from a bound node
 translation_failure	clauses/match/Match4/[7] Matching variable length patterns including a bound relationship
 execution_failure	clauses/match/Match4/[8] Matching relationships into a list and matching variable length using the list
 correct_rejection	clauses/match/Match4/[9] Fail when asterisk operator is missing
@@ -437,9 +437,9 @@ passed	clauses/match/Match5/[23] Handling a variable length relationship and a s
 passed	clauses/match/Match5/[24] Handling a variable length relationship and a standard relationship in chain, longer 2
 passed	clauses/match/Match5/[25] Handling a variable length relationship and a standard relationship in chain, longer 3
 execution_failure	clauses/match/Match5/[26] Handling mixed relationship patterns and directions 1
-execution_failure	clauses/match/Match5/[27] Handling mixed relationship patterns and directions 2
-translation_failure	clauses/match/Match5/[28] Handling mixed relationship patterns 1
-translation_failure	clauses/match/Match5/[29] Handling mixed relationship patterns 2
+passed	clauses/match/Match5/[27] Handling mixed relationship patterns and directions 2
+passed	clauses/match/Match5/[28] Handling mixed relationship patterns 1
+passed	clauses/match/Match5/[29] Handling mixed relationship patterns 2
 passed	clauses/match/Match5/[2] Handling explicitly unbounded variable length match
 passed	clauses/match/Match5/[3] Handling single bounded variable length match 1
 passed	clauses/match/Match5/[4] Handling single bounded variable length match 2
