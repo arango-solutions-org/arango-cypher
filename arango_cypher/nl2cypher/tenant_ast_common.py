@@ -54,6 +54,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from arango_query_core import CoreError
+
+from arango_cypher._translate_v0.literals import cypher_string_value
+
 from .tenant_scope import (
     EntityTenantRole,
     TenantScopeManifest,
@@ -471,6 +475,21 @@ def is_literal_tenant_value(
 # ---------------------------------------------------------------------------
 # Internal helpers — not part of the public surface
 # ---------------------------------------------------------------------------
+
+
+def cypher_literal_value(literal: str) -> str:
+    """The value of the Cypher string literal *literal*, quotes included.
+
+    Escapes are decoded as the translator decodes them
+    (:func:`arango_cypher._translate_v0.literals.cypher_string_value`), so a
+    check compares the value the query will compare. A literal the
+    translator refuses comes back without its quotes; its translation
+    fails anyway.
+    """
+    try:
+        return cypher_string_value(literal)
+    except CoreError:
+        return literal[1:-1]
 
 
 def _literal_value(node: object) -> Any | None:

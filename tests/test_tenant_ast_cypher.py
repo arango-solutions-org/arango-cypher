@@ -230,6 +230,22 @@ def test_unwind_known_tenant_literal_rejected() -> None:
     assert "tenant-A-uuid" in str(ei.value)
 
 
+@pytest.mark.parametrize(
+    "cypher",
+    [
+        "MATCH (e:Employee) WHERE e.TENANT_HEX_ID = 'tenant-\\u0041-uuid' RETURN e",
+        'MATCH (e:Employee) WHERE e.TENANT_HEX_ID = "tenant-\\U0041-uuid" RETURN e',
+        "UNWIND ['tenant-\\U00000041-uuid'] AS t RETURN t",
+    ],
+)
+def test_a_literal_is_read_with_its_escapes_decoded(cypher: str) -> None:
+    """A literal is compared by its value, as the translator reads it:
+    ``'tenant-\\u0041-uuid'`` is ``tenant-A-uuid``."""
+    with pytest.raises(TenantScopeRewriteRejection) as ei:
+        _inject(cypher)
+    assert ei.value.code == "LITERAL_TENANT_PREDICATE"
+
+
 def test_unwind_unknown_string_allowed_when_keyset_populated() -> None:
     """When the keyset is populated and the literal isn't in it, the
     UNWIND passes — only known tenant keys are refused."""
@@ -307,3 +323,19 @@ def test_changes_list_human_readable_full_pass() -> None:
         "Added _key = $tenantKey to (t:Tenant)",
         "Added TENANT_HEX_ID = $tenantId to (e:Employee)",
     ]
+
+
+@pytest.mark.parametrize(
+    ("literal", "value"),
+    [
+        ("'plain'", "plain"),
+        ("'tenant-\\u0041-uuid'", "tenant-A-uuid"),
+        ('"a\\tb"', "a\tb"),
+        # The translator refuses this literal; the check sees it unquoted.
+        ("'\\uD800'", "\\uD800"),
+    ],
+)
+def test_cypher_literal_value(literal: str, value: str) -> None:
+    from arango_cypher.nl2cypher.tenant_ast_common import cypher_literal_value
+
+    assert cypher_literal_value(literal) == value

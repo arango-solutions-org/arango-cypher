@@ -94,6 +94,7 @@ from .tenant_ast_common import (
     TENANT_ID_BIND,
     TENANT_KEY_BIND,
     UnknownEntityScope,
+    cypher_literal_value,
     is_literal_tenant_value,
     predicate_for_entity,
 )
@@ -571,7 +572,8 @@ def _render_merged_property_map(
 
 def _string_literal_value(value_ctx: Any) -> str | None:
     """If ``value_ctx`` is a bare string literal expression, return the
-    unquoted value; otherwise return ``None``.
+    value, escapes decoded (:func:`cypher_literal_value`); otherwise
+    return ``None``.
 
     Walks the single-child expression chain (``oC_Expression`` →
     ``oC_OrExpression`` → … → ``oC_Atom`` → ``oC_Literal``) and only
@@ -588,7 +590,7 @@ def _string_literal_value(value_ctx: Any) -> str | None:
             sl = literal.StringLiteral() if hasattr(literal, "StringLiteral") else None
             if sl is None:
                 return None
-            return _strip_quotes(sl.getText())
+            return cypher_literal_value(sl.getText())
         rule_children = [
             node.getChild(i)
             for i in range(node.getChildCount())
@@ -598,13 +600,6 @@ def _string_literal_value(value_ctx: Any) -> str | None:
             return None
         node = rule_children[0]
     return None
-
-
-def _strip_quotes(text: str) -> str:
-    """Drop the surrounding quote characters from a Cypher string literal."""
-    if len(text) >= 2 and text[0] in ("'", '"') and text[-1] == text[0]:
-        return text[1:-1]
-    return text
 
 
 # ---------------------------------------------------------------------------

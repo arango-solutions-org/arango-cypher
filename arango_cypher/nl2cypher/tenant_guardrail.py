@@ -55,6 +55,7 @@ from typing import Any
 from .tenant_ast_common import (
     TENANT_ID_BIND,
     TENANT_KEY_BIND,
+    cypher_literal_value,
     is_bindvar_reference,
     is_literal_tenant_value,
 )
@@ -355,9 +356,10 @@ def _scan_denorm_predicates(
                 # ignored, identical to the pre-MT-2 behaviour for
                 # an unrecognised RHS.
                 continue
-            literal = single if single is not None else double
-            if literal is not None:
-                literal_values.append(literal)
+            if single is not None:
+                literal_values.append(cypher_literal_value(f"'{single}'"))
+            elif double is not None:
+                literal_values.append(cypher_literal_value(f'"{double}"'))
 
     return _DenormPredicateScan(
         bind_var_satisfied=bind_var_satisfied,
