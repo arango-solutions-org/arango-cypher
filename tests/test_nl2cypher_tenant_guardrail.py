@@ -377,6 +377,26 @@ class TestMT2LiteralTenantPredicate:
         # attempt.
         assert "$tenantId" in v.suggested_hint
 
+    @pytest.mark.parametrize(
+        "literal",
+        ["'tenant-\\u0041-uuid'", '"tenant-\\U0041-uuid"', "'tenant-\\U00000041-uuid'"],
+    )
+    def test_a_literal_is_read_with_its_escapes_decoded(self, literal: str) -> None:
+        # The predicate compares the literal's value, escapes decoded
+        # as the translator decodes them: each of these is
+        # ``tenant-A-uuid``.
+        manifest = self._employee_manifest(
+            known_tenant_keys=frozenset({"tenant-A-uuid"}),
+        )
+        ctx = TenantContext(property="_key", value="tenant-A-uuid")
+        for cypher in (
+            f"MATCH (e:Employee) WHERE e.TENANT_HEX_ID = {literal} RETURN e",
+            f"MATCH (e:Employee {{TENANT_HEX_ID: {literal}}}) RETURN e",
+        ):
+            v = check_tenant_scope(cypher, tenant_context=ctx, manifest=manifest)
+            assert isinstance(v, TenantScopeViolation), cypher
+            assert v.code == CODE_LITERAL_TENANT_PREDICATE
+
     def test_literal_tenant_predicate_rejected_when_value_unknown(
         self,
     ) -> None:
