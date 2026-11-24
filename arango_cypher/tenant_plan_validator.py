@@ -1280,9 +1280,10 @@ def _index_covers_tenant(
     """IndexNode condition references *tenant_field* == @tenantId.
 
     ArangoDB's IndexNode embeds the resolved index condition in
-    ``node["condition"]["subNodes"]`` as an n-ary tree. We walk it
-    looking for the ``attribute access`` compared against the
-    ``@tenantId`` parameter or the resolved-bind *sentinel* literal.
+    ``node["condition"]["subNodes"]`` as an n-ary tree. Every row it
+    selects must compare the ``attribute access`` against the
+    ``@tenantId`` parameter or the resolved-bind *sentinel* literal
+    (:func:`_condition_requires`).
     """
     if not tenant_field:
         return False
@@ -1300,24 +1301,41 @@ def _condition_covers_tenant(
     tenant_field: str,
     sentinel: str | None = None,
 ) -> bool:
-    if not isinstance(cond, dict):
-        return False
-    sides = _compare_eq_subnodes(cond)
-    if sides is not None:
+    def tenant_eq(node: dict[str, Any]) -> bool:
+        sides = _compare_eq_subnodes(node)
+        if sides is None:
+            return False
         lhs, rhs = sides
-        if (
+        return (
             _is_attribute_access_on(lhs, var_name=outvar, attr=tenant_field)
             and _is_tenant_value_operand(rhs, sentinel=sentinel)
         ) or (
             _is_attribute_access_on(rhs, var_name=outvar, attr=tenant_field)
             and _is_tenant_value_operand(lhs, sentinel=sentinel)
-        ):
-            return True
-    for sub in cond.get("subNodes") or []:
-        if isinstance(sub, dict) and _condition_covers_tenant(
-            sub, outvar=outvar, tenant_field=tenant_field, sentinel=sentinel
-        ):
-            return True
+        )
+
+    return _condition_requires(cond, tenant_eq)
+
+
+def _condition_requires(cond: Any, leaf: Any) -> bool:
+    """Whether every row the index condition *cond* selects satisfies one of
+    its comparisons for which *leaf* holds.
+
+    ArangoDB gives an IndexNode's condition in disjunctive form (an
+    ``n-ary or`` of ``n-ary and`` branches). Under an AND one conjunct
+    is enough; under an OR every branch needs one; any other node (a
+    ``NOT``, a function call) proves nothing.
+    """
+    if not isinstance(cond, dict):
+        return False
+    if leaf(cond):
+        return True
+    subs = cond.get("subNodes") or []
+    kind = cond.get("type")
+    if kind in {"n-ary and", "logical and"}:
+        return any(isinstance(sub, dict) and _condition_requires(sub, leaf) for sub in subs)
+    if kind in {"n-ary or", "logical or"}:
+        return bool(subs) and all(_condition_requires(sub, leaf) for sub in subs)
     return False
 
 
@@ -1331,21 +1349,18 @@ def _index_keyed_by_tenant_key(node: dict[str, Any]) -> bool:
 
 
 def _condition_keyed_by_tenant_key(cond: Any, *, outvar: str) -> bool:
-    if not isinstance(cond, dict):
-        return False
-    sides = _compare_eq_subnodes(cond)
-    if sides is not None:
+    def key_eq(node: dict[str, Any]) -> bool:
+        sides = _compare_eq_subnodes(node)
+        if sides is None:
+            return False
         lhs, rhs = sides
-        if (
+        return (
             _is_attribute_access_on(lhs, var_name=outvar, attr="_key") and _is_bindvar_named(rhs, "tenantKey")
         ) or (
             _is_attribute_access_on(rhs, var_name=outvar, attr="_key") and _is_bindvar_named(lhs, "tenantKey")
-        ):
-            return True
-    for sub in cond.get("subNodes") or []:
-        if isinstance(sub, dict) and _condition_keyed_by_tenant_key(sub, outvar=outvar):
-            return True
-    return False
+        )
+
+    return _condition_requires(cond, key_eq)
 
 
 def _traversal_prune_uses_tenant(node: dict[str, Any]) -> bool:
