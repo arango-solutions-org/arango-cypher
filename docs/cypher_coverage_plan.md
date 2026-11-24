@@ -283,6 +283,9 @@ uncorrelated nodes (`exists { () }`) are refused cleanly. TCK
 `expressions/existentialSubqueries` 6/10 → 9/10; the bigger win is the
 LLM-corpus, where single-node existentials are common. Tests:
 `tests/test_translate_pattern_subquery_shorthand.py::TestSingleNodeSubquery`.
+*Superseded 2026-11-23:* every EXISTS/COUNT body, single-node ones included,
+compiles through the MATCH-after-WITH compiler (PRD, EXISTS/COUNT
+paragraph); this function and the single-hop copy beside it were removed.
 
 #### WP-V1d — WITH+aggregation counting existentials · *done 2026-07-05*
 

@@ -45,9 +45,9 @@ class TestPatternShorthand:
             "WHERE exists{(p)-[:ACTED_IN]->(m)} RETURN p.name LIMIT 3",
             mapping=pg,
         )
-        assert "FOR _sq_v, _sq_e" in out.aql
-        assert "_sq_v._id == m._id" in out.aql
-        assert "FOR m," not in out.aql.split("LENGTH(FOR")[1]  # m not re-bound in subquery
+        sub = out.aql.split("LENGTH(FOR")[1]
+        assert "_sq_m_1._id == m._id" in sub
+        assert "FOR m," not in sub  # m not re-bound in subquery
 
     def test_labeled_target_is_fresh_local(self, pg):
         # (f:Person) is a fresh subquery-local binding, not a correlation.
@@ -80,26 +80,25 @@ class TestSingleNodeSubquery:
             "MATCH (p:Person) WHERE exists { (m:Movie) WHERE m.released > 2000 } RETURN p.name",
             mapping=pg,
         )
-        assert "LENGTH(FOR m IN " in out.aql
+        assert "LENGTH(FOR _sq_m IN " in out.aql
         assert "> 0)" in out.aql
-        assert "m.released" in out.aql
+        assert "_sq_m.released" in out.aql
 
     def test_count_labeled_node(self, pg):
         out = translate(
             "MATCH (p:Person) RETURN p.name, count { (m:Movie) } AS c",
             mapping=pg,
         )
-        assert "c: LENGTH(FOR m IN " in out.aql
+        assert "c: LENGTH(FOR _sq_m IN " in out.aql
 
     def test_correlated_bare_outer_node(self, pg):
-        # `(p)` re-uses the outer binding → probe a single-element list so the
-        # WHERE can reference the outer variable directly.
+        # `(p)` re-uses the outer binding → the WHERE on the outer variable,
+        # over one row.
         out = translate(
             "MATCH (p:Person) WHERE exists { (p) WHERE p.born > 1970 } RETURN p.name",
             mapping=pg,
         )
-        assert "FOR _sq_probe_p IN [p]" in out.aql
-        assert "p.born" in out.aql
+        assert "LENGTH(FOR _sq_row IN [1] FILTER (p.born != null AND p.born > 1970) RETURN 1)" in out.aql
 
     def test_inline_properties(self, pg):
         out = translate(
@@ -115,8 +114,7 @@ class TestSingleNodeSubquery:
             "count { (d:Movie) WHERE d.released > 2000 } AS b",
             mapping=pg,
         )
-        assert "@@sqNodeColl" in out.aql
-        assert "@@sqNodeColl2" in out.aql
+        assert out.bind_vars["@tailCollection"] == out.bind_vars["@tailCollection2"] == "movies"
 
     def test_anonymous_unlabeled_node_rejected(self, pg):
         from arango_query_core import CoreError
@@ -142,9 +140,11 @@ class TestAggregationSubquery:
             "} RETURN p.name",
             mapping=pg,
         )
-        assert "COLLECT WITH COUNT INTO c" in out.aql
-        assert "c > 3" in out.aql
-        assert "(LENGTH(FOR m, _sq_e IN" in out.aql  # target is a fresh loop var
+        # Grouped by the outer p: no group (and no row) when p acted in nothing.
+        assert (
+            "COLLECT WITH COUNT INTO _sq_c FILTER _sq_c > 0 FILTER (_sq_c != null AND _sq_c > 3)" in out.aql
+        )
+        assert "(LENGTH(FOR _sq_m, _sq_r IN" in out.aql  # target is a fresh loop var
         assert "> 0)" in out.aql
 
     def test_exists_with_count_no_having(self, pg):
@@ -154,7 +154,8 @@ class TestAggregationSubquery:
             "} RETURN p.name",
             mapping=pg,
         )
-        assert "COLLECT WITH COUNT INTO c" in out.aql
+        # No key: one row even when nothing matched, as in Cypher.
+        assert "COLLECT WITH COUNT INTO _sq_c RETURN 1" in out.aql
 
     def test_count_subquery_with_aggregation(self, pg):
         out = translate(
@@ -163,8 +164,8 @@ class TestAggregationSubquery:
             "} AS x",
             mapping=pg,
         )
-        assert "x: LENGTH(FOR m, _sq_e IN" in out.aql
-        assert "COLLECT WITH COUNT INTO c" in out.aql
+        assert "x: LENGTH(FOR _sq_m, _sq_r IN" in out.aql
+        assert "COLLECT WITH COUNT INTO _sq_c FILTER _sq_c > 0" in out.aql
 
     def test_reject_distinct_in_with(self, pg):
         from arango_query_core import CoreError

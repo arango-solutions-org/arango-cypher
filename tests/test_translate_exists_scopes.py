@@ -21,25 +21,26 @@ def _aql(q: str) -> str:
 
 def test_fresh_target_is_the_loop_variable():
     aql = _aql("MATCH (n) WHERE exists { (n)-->(m) WHERE n.prop = m.prop } RETURN n")
-    assert "FOR m, _sq_e IN 1..1 OUTBOUND n" in aql
-    assert "m._id" not in aql
+    assert "FOR _sq_m, _sq_r IN 1..1 OUTBOUND n" in aql
+    assert "._id ==" not in aql
 
 
 def test_outer_target_is_correlated_by_id():
     aql = _aql("MATCH (n), (m) WHERE exists { (n)-->(m) } RETURN n")
-    assert "_sq_v._id == m._id" in aql
+    assert "FILTER _sq_m_1._id == m._id" in aql
 
 
 def test_named_relationship_is_the_edge_variable():
     aql = _aql("MATCH (n) WHERE exists { (n)-[r]->() WHERE r.w > 1 } RETURN n")
-    assert "FOR _sq_v, r IN 1..1 OUTBOUND n" in aql
+    assert "FOR _sq_v, _sq_r IN 1..1 OUTBOUND n" in aql
+    assert "_sq_r.w > 1" in aql
 
 
 def test_fresh_single_node_scans_and_outer_one_is_probed():
     nested = _aql("MATCH (n) WHERE exists { MATCH (m) WHERE m.prop = n.prop RETURN true } RETURN n")
-    assert "FOR m IN @@sqNodes" in nested
+    assert "FOR _sq_m IN @@tailCollection" in nested
     probe = _aql("MATCH (n) WHERE exists { MATCH (n) WHERE n.prop = 1 RETURN true } RETURN n")
-    assert "FOR _sq_probe_n IN [n]" in probe
+    assert "LENGTH(FOR _sq_row IN [1] FILTER (n.prop == 1) RETURN 1)" in probe
 
 
 def test_multi_hop_subquery_tests_every_hop():
@@ -49,12 +50,18 @@ def test_multi_hop_subquery_tests_every_hop():
     assert "._id != " in aql
 
 
-def test_multi_hop_subquery_with_aggregation_fails_closed():
+def test_multi_hop_subquery_with_aggregation_counts_every_hop():
+    aql = _aql(
+        "MATCH (n) WHERE exists { MATCH (l)<-[:FOLLOWS]-(n)-[:FOLLOWS]->(m) WITH n, count(*) AS c WHERE c > 1 "
+        "RETURN c } RETURN n"
+    )
+    assert aql.count(" IN 1..1 ") == 2
+    assert "COLLECT WITH COUNT INTO _sq_c FILTER _sq_c > 0 FILTER (_sq_c != null AND _sq_c > 1)" in aql
+
+
+def test_aggregation_grouped_by_a_variable_of_its_own_fails_closed():
     with pytest.raises(CoreError):
-        _aql(
-            "MATCH (n) WHERE exists { MATCH (l)<-[:FOLLOWS]-(n)-[:FOLLOWS]->(m) WITH count(*) AS c RETURN c } "
-            "RETURN n"
-        )
+        _aql("MATCH (n) WHERE exists { MATCH (n)-[:FOLLOWS]->(m) WITH m, count(*) AS c RETURN c } RETURN n")
 
 
 def test_outer_bound_names_excludes_the_subquery_itself():

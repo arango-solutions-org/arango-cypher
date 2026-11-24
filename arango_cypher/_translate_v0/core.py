@@ -3038,15 +3038,10 @@ def _compile_bound_part(
 
     # If the start is unbound, start a fresh scan over (u:Label) using the mapping.
     if not bound_start:
-        labels_ctx = node.oC_NodeLabels()
-        label: str | None = None
-        if labels_ctx is not None:
-            node_labels = labels_ctx.oC_NodeLabel()
-            if not node_labels or len(node_labels) != 1:
-                raise CoreError("MATCH after WITH requires exactly one label", code="UNSUPPORTED")
-            label = node_labels[0].oC_LabelName().getText().strip()
-            if not label:
-                raise CoreError("Invalid label in MATCH", code="UNSUPPORTED")
+        _, start_labels = _extract_node_var_and_labels(node, default_var=u_cy)
+        # Several labels: scan the primary one, filter on the others, as a
+        # first MATCH does.
+        label = _pick_primary_entity_label(start_labels, resolver) if start_labels else None
 
         # The scan runs below the variables bound so far (see union_scan_source).
         after = next((v for v in reversed(out_env.values()) if _BARE_IDENTIFIER_RE.fullmatch(v)), None)
@@ -3085,6 +3080,10 @@ def _compile_bound_part(
                 tail_filters.append(_multi_label_filter(u_aql, entity_mapping, bind_vars))
             elif entity_style not in ("COLLECTION", "UNION"):
                 raise CoreError(f"Unsupported entity mapping style: {entity_style}", code="INVALID_MAPPING")
+            if entity_style == "COLLECTION":
+                tail_filters += _collection_label_filters(u_aql, start_labels, label, bind_vars, bare=True)
+            else:
+                tail_filters += _extra_label_filters(u_aql, start_labels, label, bind_vars, bare=True)
 
         lines.append(f"  FOR {u_aql} IN {tail_source}")
         for f in tail_filters:
@@ -5491,99 +5490,11 @@ def _compile_in_mode(ctx: Any, bind_vars: dict[str, Any], mode: str | None) -> s
         _PREDICATE_MODE.reset(token)
 
 
-def _compile_single_node_subquery_body(
-    *,
-    start_node: CypherParser.OC_NodePatternContext,
-    match_ctx: CypherParser.OC_MatchContext,
-    resolver: MappingResolver,
-    bind_vars: dict[str, Any],
-) -> str:
-    """Compile a *single-node* EXISTS{}/COUNT{} body (no relationship chain).
-
-    Two shapes, distinguished by whether the node re-uses an outer binding:
-
-    * **Correlated** — a bare named node with no label / properties
-      (``exists { (n) WHERE n.prop = 1 }`` where ``n`` is bound in the
-      enclosing query). Existence collapses to the WHERE predicate on the
-      outer node, so we probe a single-element list ``[n]``; the WHERE
-      references the outer variable directly (valid, since the subquery is
-      inline within the outer ``FOR n`` scope).
-    * **Fresh scan** — a labelled node (``exists { (m:Movie) WHERE m.x>1 }``
-      / ``count { (m:Movie) }``). We scan the label's collection with the
-      usual discriminator + inline-property + WHERE filters.
-
-    An anonymous, unlabelled, uncorrelated node (``exists { () }``) has no
-    collection to scan and is refused. Collision-safe bind keys keep the
-    subquery's collection / type binds from clobbering the outer query's.
-    """
-    var, labels = _extract_node_var_and_labels(start_node, default_var="_sq_v")
-    named = var != "_sq_v"
-    has_props = start_node.oC_Properties() is not None
-    where_ctx = match_ctx.oC_Where()
-
-    # Correlated single outer node: existence == the WHERE predicate on it.
-    if named and not labels and not has_props and var in outer_bound_names(match_ctx):
-        sub = f"FOR _sq_probe_{var} IN [{var}]"
-        if where_ctx is not None:
-            sub += f" FILTER {_compile_where(where_ctx.oC_Expression(), bind_vars)}"
-        return sub + " RETURN 1"
-
-    if not labels:
-        # A node of the subquery's own: scan the one collection unlabeled
-        # nodes live in (failing closed when that is ambiguous).
-        coll_key = _pick_bind_key("@sqNodes", bind_vars)
-        bind_vars[coll_key] = _infer_unlabeled_collection(resolver)
-        sub = f"FOR {var} IN {_aql_collection_ref(coll_key)}"
-        for f in _compile_node_pattern_properties(start_node, var=var, bind_vars=bind_vars):
-            sub += f" FILTER {f}"
-        if where_ctx is not None:
-            sub += f" FILTER {_compile_where(where_ctx.oC_Expression(), bind_vars)}"
-        return sub + " RETURN 1"
-
-    primary = _pick_primary_entity_label(labels, resolver)
-    emap = resolver.resolve_entity(_strip_label_backticks(primary))
-    style = emap.get("style")
-    coll_key = _pick_bind_key("@sqNodeColl", bind_vars)
-    # A UNION supertype applies the node's inline properties inside its member branches.
-    pushed = (
-        _compile_node_pattern_properties(start_node, var=var, bind_vars=bind_vars) if style == "UNION" else []
-    )
-    source, _ = node_scan_source(var, primary, emap, resolver, bind_vars, coll_key=coll_key, filters=pushed)
-
-    filters: list[str] = []
-    if style == "LABEL":
-        tf = _pick_bind_key("sqNodeTF", bind_vars)
-        tv = _pick_bind_key("sqNodeTV", bind_vars)
-        bind_vars[tf] = emap.get("typeField")
-        bind_vars[tv] = emap.get("typeValue")
-        filters.append(label_test(var, tf, tv, emap, bind_vars))
-        filters.extend(_extra_label_filters(var, labels, primary, bind_vars, bare=True))
-    elif style == "MULTI_LABEL":
-        filters.append(_multi_label_filter(var, emap, bind_vars))
-        filters.extend(_extra_label_filters(var, labels, primary, bind_vars, bare=True))
-    elif style == "UNION":
-        filters.extend(_extra_label_filters(var, labels, primary, bind_vars, bare=True))
-    elif style != "COLLECTION":
-        raise CoreError(f"Unsupported entity mapping style: {style}", code="INVALID_MAPPING")
-    else:
-        filters.extend(_collection_label_filters(var, labels, primary, bind_vars, bare=True))
-
-    if style != "UNION":
-        filters.extend(_compile_node_pattern_properties(start_node, var=var, bind_vars=bind_vars))
-    if where_ctx is not None:
-        filters.append(_compile_where(where_ctx.oC_Expression(), bind_vars))
-
-    sub = f"FOR {var} IN {source}"
-    for f in filters:
-        sub += f" FILTER {f}"
-    return sub + " RETURN 1"
-
-
 def _compile_subquery_with_aggregation(
     *,
     with_clauses: list[CypherParser.OC_WithContext],
     sub_prefix: str,
-    start_var: str,
+    bound_names: set[str],
     bind_vars: dict[str, Any],
 ) -> str:
     """Lower a ``MATCH … WITH … count(*) … [WHERE having]`` subquery body.
@@ -5593,17 +5504,18 @@ def _compile_subquery_with_aggregation(
 
         exists { MATCH (n)-->(m) WITH n, count(*) AS c WHERE c > 3 RETURN true }
 
-    The traversal ``sub_prefix`` (``FOR _sq_v, _sq_e IN … RETURN``-less) is
-    followed by ``COLLECT WITH COUNT INTO <alias>``, an optional post-COLLECT
-    ``FILTER`` (the WITH's ``WHERE``, i.e. a HAVING), and ``RETURN 1``. Because
-    the subquery is already scoped to the single correlated ``start_var``,
-    grouping by that variable is one group, so a keyless ``COLLECT WITH COUNT``
-    is exactly the per-``start_var`` count; the alias is used verbatim as the
-    AQL COLLECT variable so the HAVING predicate needs no rewriting.
+    The pattern's ``sub_prefix`` (its ``FOR``/``FILTER`` lines, no ``RETURN``)
+    is followed by ``COLLECT WITH COUNT INTO <alias>``, an optional
+    post-COLLECT ``FILTER`` (the WITH's ``WHERE``, i.e. a HAVING), and
+    ``RETURN 1``. The subquery runs once per outer row, so a grouping key that
+    is a variable of the outer query (*bound_names*) has one value, and a
+    keyless ``COLLECT WITH COUNT`` is exactly the per-row count (an empty
+    group is dropped when the WITH has a key). The alias is the AQL COLLECT
+    variable, so the HAVING predicate needs no rewriting.
 
     Only this shape is supported. Anything else — multiple WITHs, ``DISTINCT``,
     ``ORDER BY``/``SKIP``/``LIMIT``, non-``count(*)`` aggregates, grouping keys
-    other than the correlated ``start_var`` — is refused (rather than emitting
+    the subquery binds itself — is refused (rather than emitting
     silently-wrong AQL) so a fuller subquery pipeline can be added later.
     """
     if len(with_clauses) != 1:
@@ -5626,6 +5538,7 @@ def _compile_subquery_with_aggregation(
         raise CoreError("Subquery WITH must project count(*)", code="UNSUPPORTED")
 
     count_alias: str | None = None
+    grouped = False
     for it in items:
         expr_ctx = it.oC_Expression()
         alias_ctx = it.oC_Variable()
@@ -5635,13 +5548,14 @@ def _compile_subquery_with_aggregation(
             if alias_ctx is None:
                 raise CoreError("count(*) in a subquery WITH requires an alias", code="UNSUPPORTED")
             count_alias = alias_ctx.getText().strip()
-        elif expr_text.strip() == start_var and alias_ctx is None:
-            # Grouping by the correlated outer node — one group; no-op.
+        elif expr_text.strip() in bound_names and alias_ctx is None:
+            # Grouping by a variable of the outer query: at most one group.
+            grouped = True
             continue
         else:
             raise CoreError(
                 f"Unsupported WITH item in subquery: {expr_text!r} "
-                "(only count(*) and grouping by the correlated node are supported)",
+                "(only count(*) and grouping by a variable of the outer query are supported)",
                 code="UNSUPPORTED",
             )
 
@@ -5649,6 +5563,11 @@ def _compile_subquery_with_aggregation(
         raise CoreError("Subquery WITH must aggregate count(*)", code="UNSUPPORTED")
 
     aql = f"{sub_prefix} COLLECT WITH COUNT INTO {count_alias}"
+    if grouped:
+        # A keyless COLLECT yields one row even from no input, as Cypher's
+        # ``WITH count(*) AS c`` does; grouped by a key, Cypher yields no row
+        # when nothing matched.
+        aql += f" FILTER {count_alias} > 0"
     having_ctx = with_clauses[0].oC_Where()
     if having_ctx is not None:
         aql += f" FILTER {_compile_where(having_ctx.oC_Expression(), bind_vars)}"
@@ -5661,166 +5580,85 @@ def _compile_subquery_body(
 ) -> str:
     """Compile the inner SubqueryBody of an EXISTS{} or COUNT{} subquery to AQL.
 
-    The inner query contains a MATCH clause; a relationship pattern compiles
-    to a traversal subquery, and a bare single-node pattern (delegated to
-    :func:`_compile_single_node_subquery_body`) compiles to a collection scan
-    or a correlated single-node probe. A ``MATCH … WITH count(*) …`` body is
-    lowered by :func:`_compile_subquery_with_aggregation`. Either way the
-    result is the ``FOR … RETURN 1`` body, without the outer ``LENGTH`` wrapper.
+    Each MATCH of the body goes through the compiler for a MATCH that starts
+    at bound variables (:func:`_compile_match_from_bound`), with the names the
+    query binds before the subquery as those variables: an outer name is
+    correlated with the outer row by ``_id``, any other name is the
+    subquery's own. Labels, inline properties of nodes and relationships,
+    variable-length hops and comma-separated parts therefore mean what they
+    mean in any other MATCH. A ``MATCH … WITH count(*) …`` body is lowered by
+    :func:`_compile_subquery_with_aggregation`. The result is the
+    ``FOR … RETURN 1`` body, without the outer ``LENGTH`` wrapper.
     """
     resolver = _active_resolver.get()
     if resolver is None:
         raise CoreError("Subquery requires a mapping resolver", code="UNSUPPORTED")
 
-    reading_clauses = sq_ctx.oC_ReadingClause() or []
-    if not reading_clauses:
-        raise CoreError("EXISTS/COUNT subquery must contain a MATCH clause", code="UNSUPPORTED")
-
     match_clauses: list[CypherParser.OC_MatchContext] = []
-    for rc in reading_clauses:
+    for rc in sq_ctx.oC_ReadingClause() or []:
         m = rc.oC_Match()
-        if m is not None:
-            match_clauses.append(m)
-
+        if m is None or m.OPTIONAL() is not None:
+            # Skipping it would test a different pattern than the query's.
+            raise CoreError(
+                f"EXISTS/COUNT subquery supports only MATCH clauses, not {rc.getText()[:40]!r}",
+                code="NOT_IMPLEMENTED",
+            )
+        match_clauses.append(m)
     if not match_clauses:
         raise CoreError("EXISTS/COUNT subquery must contain a MATCH clause", code="UNSUPPORTED")
 
-    match_ctx = match_clauses[0]
-    pattern = match_ctx.oC_Pattern()
-    parts = pattern.oC_PatternPart() or []
-    if not parts:
-        raise CoreError("Empty MATCH pattern in subquery", code="UNSUPPORTED")
+    for m in match_clauses:
+        for part in m.oC_Pattern().oC_PatternPart() or []:
+            anon = part.oC_AnonymousPatternPart()
+            if part.oC_Variable() is not None or anon is None:
+                raise CoreError("Named patterns not supported in subquery", code="NOT_IMPLEMENTED")
+            refuse_unbound_shortest_path(anon)
 
-    pp = parts[0]
-    anon = pp.oC_AnonymousPatternPart()
-    if anon is None:
-        raise CoreError("Named patterns not supported in subquery", code="NOT_IMPLEMENTED")
-    refuse_unbound_shortest_path(anon)
-    pe = anon.oC_PatternElement()
-
-    with_clauses = sq_ctx.oC_With() or []
-    has_with = bool(with_clauses)
-
-    start_node = pe.oC_NodePattern()
-    chains = pe.oC_PatternElementChain() or []
-    if not chains:
-        if has_with:
-            raise CoreError(
-                "WITH aggregation in a single-node subquery is not supported",
-                code="UNSUPPORTED",
-            )
-        return _compile_single_node_subquery_body(
-            start_node=start_node,
-            match_ctx=match_ctx,
+    outer = outer_bound_names(sq_ctx)
+    forbidden = set(outer)
+    env = {name: name for name in outer}
+    sub_lines: list[str] = []
+    for m in match_clauses:
+        env, _ = _compile_match_from_bound(
+            m,
             resolver=resolver,
             bind_vars=bind_vars,
-        )
-
-    start_var, start_labels = _extract_node_var_and_labels(start_node, default_var="_sq_start")
-    if len(chains) > 1 and not has_with and len(parts) == 1:
-        # A multi-hop pattern: the bound-variable MATCH compiler, with the
-        # names the query binds before the subquery as its bound variables.
-        outer = outer_bound_names(sq_ctx)
-        sub_lines: list[str] = []
-        _compile_match_from_bound(
-            match_ctx,
-            resolver=resolver,
-            bind_vars=bind_vars,
-            forbidden_vars=set(outer),
-            var_env={name: name for name in outer},
+            forbidden_vars=forbidden,
+            var_env=env,
             lines=sub_lines,
         )
-        return " ".join(ln.strip() for ln in sub_lines) + " RETURN 1"
-    if len(chains) > 1:
-        # Only one hop is compiled; dropping the others would test a weaker
-        # pattern than the query's.
-        raise CoreError(
-            "EXISTS/COUNT subquery over a multi-hop pattern is not supported", code="NOT_IMPLEMENTED"
-        )
-    chain = chains[0]
-    rel_pat = chain.oC_RelationshipPattern()
-    target_node = chain.oC_NodePattern()
-    if rel_pat is None:
-        raise CoreError("Invalid subquery pattern", code="UNSUPPORTED")
+    sub = " ".join(ln.strip() for ln in sub_lines)
+    if not sub.startswith("FOR "):
+        # Only variables of the outer row (``EXISTS { (n) WHERE n.x > 1 }``):
+        # the pattern holds once, when the filters do.
+        sub = f"FOR row IN [1] {sub}".rstrip()
 
-    rel_type, rel_name, rel_range = _extract_relationship_type_and_var(rel_pat, default_var="_sq_r")
-    direction = _relationship_direction(rel_pat)
-
-    r_map = _resolve_relationship_for_pattern(resolver, rel_type)
-    edge_key = _pick_bind_key("@sqEdge", bind_vars)
-    bind_vars[edge_key] = r_map.get("edgeCollectionName") or r_map.get("collectionName")
-
-    # A relationship the subquery names is its own edge variable.
-    sq_e = rel_name if rel_name != "_sq_r" and rel_name not in outer_bound_names(sq_ctx) else "_sq_e"
-    target_var, t_labels = _extract_node_var_and_labels(target_node, default_var="_sq_t")
-    target_named = target_var != "_sq_t"
-    target_has_props = target_node.oC_Properties() is not None
-    # A *bare* named target (no label, no properties) references an outer binding
-    # — e.g. ``exists{(p)-[:R]->(m)}`` where ``m`` is bound in the enclosing
-    # query — so traverse to a fresh internal variable and constrain it by
-    # ``_id``; reusing the outer name as the loop variable makes AQL reject the
-    # query ("variable 'm' is assigned multiple times"). A *labeled/propertied*
-    # named target (``(m:User)``) is a fresh binding local to the subquery, so it
-    # is used as the loop variable directly.
-    #
-    # In an *aggregation* subquery (``… WITH count(*) …``) the target is being
-    # enumerated/counted, not correlated — so it is always a fresh loop
-    # variable regardless of naming.
-    correlate_target = (
-        (not has_with)
-        and target_named
-        and not t_labels
-        and not target_has_props
-        and target_var in outer_bound_names(sq_ctx)
-    )
-    sq_v = target_var if (target_named and not correlate_target) else "_sq_v"
-
-    filters: list[str] = []
-    if correlate_target:
-        filters.append(f"{sq_v}._id == {target_var}._id")
-
-    r_style = r_map.get("style")
-    if r_style == "GENERIC_WITH_TYPE":
-        rtf = _pick_bind_key("sqRelTF", bind_vars)
-        rtv = _pick_bind_key("sqRelTV", bind_vars)
-        bind_vars[rtf] = r_map.get("typeField")
-        bind_vars[rtv] = r_map.get("typeValue")
-        filters.append(f"{sq_e}[@{rtf}] == @{rtv}")
-
-    if t_labels:
-        t_primary = _pick_primary_entity_label(t_labels, resolver)
-        try:
-            t_map = resolver.resolve_entity(_strip_label_backticks(t_primary))
-            if t_map.get("style") == "LABEL":
-                ttf = _pick_bind_key("sqTTF", bind_vars)
-                ttv = _pick_bind_key("sqTTV", bind_vars)
-                bind_vars[ttf] = t_map.get("typeField")
-                bind_vars[ttv] = t_map.get("typeValue")
-                filters.append(label_test(sq_v, ttf, ttv, t_map, bind_vars))
-        except CoreError:
-            pass
-
-    where_ctx = match_ctx.oC_Where()
-    if where_ctx is not None:
-        where_cond = _compile_where(where_ctx.oC_Expression(), bind_vars)
-        filters.append(where_cond)
-
-    rmin, rmax = rel_range
-    edge_ref = _aql_collection_ref(edge_key)
-    sub = f"FOR {sq_v}, {sq_e} IN {rmin}..{rmax} {direction} {start_var} {edge_ref}"
-    for f in filters:
-        sub += f" FILTER {f}"
-
-    if has_with:
-        return _compile_subquery_with_aggregation(
+    with_clauses = sq_ctx.oC_With() or []
+    if with_clauses:
+        sub = _compile_subquery_with_aggregation(
             with_clauses=with_clauses,
             sub_prefix=sub,
-            start_var=start_var,
+            bound_names=outer,
             bind_vars=bind_vars,
         )
+    else:
+        sub += " RETURN 1"
+    return _rename_subquery_vars(sub, outer)
 
-    sub += " RETURN 1"
-    return sub
+
+def _rename_subquery_vars(sub: str, outer: set[str]) -> str:
+    """Rename every variable the subquery *sub* declares to a ``_sq_`` name.
+
+    The subquery is compiled inside an expression of the outer query, whose
+    own AQL variables are not known here; an unnamed node of the subquery
+    named ``v`` like an unnamed node of the outer query was ERR 1511 ("variable
+    is assigned multiple times"). Nothing outside the subquery reads these
+    names, and the outer query never names a variable ``_sq_…``.
+    """
+    declared = _declared_aql_vars([sub]) - outer
+    taken = declared | outer
+    renames = {name: _pick_fresh_var(f"_sq_{name}", forbidden_vars=taken) for name in sorted(declared)}
+    return _rewrite_vars(sub, renames)
 
 
 def _compile_exists_subquery(
