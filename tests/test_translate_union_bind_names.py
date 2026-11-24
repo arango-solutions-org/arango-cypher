@@ -3,7 +3,9 @@
 Each UNION branch is translated on its own and conflicting internal names are
 renamed afterwards (see ``_merge_bind_vars``). A *user* parameter must never be
 renamed — that would rebind the user's own reference to an internal value, a
-silent wrong result — so a name clash is refused with a clear error.
+silent wrong result — so a name clash is refused with a clear error. Internal
+names avoid the user's parameters when they are picked, so the refusal is the
+guard behind that.
 """
 
 from __future__ import annotations
@@ -11,7 +13,11 @@ from __future__ import annotations
 import pytest
 from arango_query_core import CoreError
 
-from arango_cypher._translate_v0.bind_names import _rename_bind_references
+from arango_cypher._translate_v0.bind_names import (
+    _merge_bind_vars,
+    _refuse_overwritten_params,
+    _rename_bind_references,
+)
 from arango_cypher.api import translate
 from tests.helpers.mapping_fixtures import mapping_bundle_for
 
@@ -22,9 +28,30 @@ CLASH = (
 
 
 @pytest.mark.parametrize("fixture", ["lpg", "hybrid"])
-def test_a_user_parameter_named_like_an_internal_one_is_refused(fixture: str) -> None:
+def test_a_user_parameter_named_like_an_internal_one_keeps_its_value(fixture: str) -> None:
+    # The label tests pick bind names of their own (``_node_label_filters``),
+    # so the user's $typeValue is neither overwritten nor renamed.
+    t = translate(CLASH, mapping=mapping_bundle_for(fixture), params={"typeValue": "vdoc"})
+    assert t.bind_vars["typeValue"] == "vdoc"
+    assert t.aql.count("n.name == @typeValue)") == 2
+    assert "== @typeValue\n" not in t.aql  # no type test reads the user's parameter
+    assert {v for k, v in t.bind_vars.items() if k.startswith("typeValue2")} <= {"User", "Doc"}
+
+
+def test_an_internal_bind_that_overwrote_a_user_parameter_is_refused() -> None:
     with pytest.raises(CoreError, match=r"Parameter \$typeValue has the same name as a bind variable"):
-        translate(CLASH, mapping=mapping_bundle_for(fixture), params={"typeValue": "vdoc"})
+        _refuse_overwritten_params({"typeValue": "vdoc"}, {"typeValue": "User"})
+
+
+def test_a_union_branch_binding_a_user_parameter_name_is_refused() -> None:
+    with pytest.raises(CoreError, match=r"Parameter \$typeValue has the same name as a bind variable"):
+        _merge_bind_vars(
+            {"typeValue": "vdoc"},
+            {"typeValue": "Doc"},
+            "FILTER n.type == @typeValue",
+            branch_index=1,
+            user_params=frozenset({"typeValue"}),
+        )
 
 
 def test_a_shared_user_parameter_with_one_value_stays_one_bind_variable() -> None:
@@ -91,15 +118,17 @@ def test_a_branch_picks_its_own_names_around_a_user_parameter() -> None:
 
 
 class TestSingleQueryParameterClash:
-    """The emitters bind some values under fixed names; outside a UNION a user
-    parameter of the same name used to be overwritten in place."""
+    """The emitters bind some values under fixed names (``@collection``);
+    outside a UNION a user parameter of the same name used to be overwritten
+    in place. A label's type test picks a name of its own."""
 
     Q = "MATCH (n:User) WHERE n.name = $typeValue RETURN n.name AS x"
 
-    def test_an_overwritten_parameter_is_refused(self) -> None:
-        with pytest.raises(CoreError, match=r"Parameter \$typeValue has the same name") as exc:
-            translate(self.Q, mapping=mapping_bundle_for("lpg"), params={"typeValue": "alice"})
-        assert exc.value.code == "UNSUPPORTED"
+    def test_a_parameter_named_like_a_type_bind_keeps_its_value(self) -> None:
+        t = translate(self.Q, mapping=mapping_bundle_for("lpg"), params={"typeValue": "alice"})
+        assert t.bind_vars["typeValue"] == "alice"
+        assert t.bind_vars["typeValue2"] == "User"
+        assert "n[@typeField] == @typeValue2" in t.aql
 
     def test_a_parameter_holding_the_same_value_is_harmless(self) -> None:
         t = translate(self.Q, mapping=mapping_bundle_for("lpg"), params={"typeValue": "User"})

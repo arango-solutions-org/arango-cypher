@@ -30,7 +30,7 @@ from . import const_temporal
 from . import cypher_functions as fns
 from . import cypher_values as cv
 from .cypher_values import CypherEvalError, NotConstant
-from .literals import parse_integer_literal
+from .literals import cypher_string_value, parse_integer_literal
 
 # Temporal values and functions (date(), duration.between(), d.week, …).
 const_temporal.install()
@@ -239,29 +239,6 @@ def _children(ctx: Any) -> list[Any]:
 
 def _is_token(node: Any) -> bool:
     return not hasattr(node, "getRuleIndex")
-
-
-def unescape_string_literal(text: str) -> str:
-    """The value of a Cypher string literal, quotes included in *text*."""
-    body = text[1:-1]
-    out: list[str] = []
-    i = 0
-    simple = {"\\": "\\", "'": "'", '"': '"', "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t"}
-    while i < len(body):
-        ch = body[i]
-        if ch == "\\" and i + 1 < len(body):
-            nxt = body[i + 1]
-            if nxt.lower() == "u":
-                width = 8 if nxt == "U" and re.fullmatch(r"[0-9a-fA-F]{8}", body[i + 2 : i + 10] or "") else 4
-                out.append(chr(int(body[i + 2 : i + 2 + width], 16)))
-                i += 2 + width
-                continue
-            out.append(simple.get(nxt.lower() if nxt in "BFNRT" else nxt, nxt))
-            i += 2
-            continue
-        out.append(ch)
-        i += 1
-    return "".join(out)
 
 
 def aql_number_literal(ctx: CypherParser.OC_NumberLiteralContext) -> str:
@@ -484,7 +461,7 @@ class Evaluator:
         if ctx.NULL() is not None:
             return None
         if ctx.StringLiteral() is not None:
-            return unescape_string_literal(ctx.StringLiteral().getText())
+            return cypher_string_value(ctx.StringLiteral().getText())
         if ctx.oC_NumberLiteral() is not None:
             num = ctx.oC_NumberLiteral()
             if num.oC_IntegerLiteral() is not None:
