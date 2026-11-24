@@ -275,14 +275,20 @@ cases:
   extensions_enabled: false
   cypher: "MATCH (a:User)-[r:FOLLOWS]->(b:User) WHERE a.name = \"Alice\" SET r.since = 2020"
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection\nFOR a IN @@collection\n  FOR b, r IN 1..1 OUTBOUND a @@edgeCollection\n    FILTER (IS_SAME_COLLECTION(@bLabelColl, b))\n    FILTER (a.name == \"Alice\")\n    UPDATE r WITH {since: 2020} IN @@edgeCollection\n"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@uCollection
+      FOR a IN @@uCollection
+        FOR b, r IN 1..1 OUTBOUND a @@edgeCollection
+          FILTER IS_SAME_COLLECTION(@vCollection, b)
+          FILTER (a.name == "Alice")
+          UPDATE r WITH {since: 2020} IN @@edgeCollection
     bind_vars:
-      "@collection": "users"
-      "@edgeCollection": "follows"
-      bLabelColl: users
-      '@withCollection0': docs
-      '@withCollection1': persons
-      '@withCollection2': places
+      "@uCollection": users
+      "@edgeCollection": follows
+      vCollection: users
+      "@withCollection0": docs
+      "@withCollection1": persons
+      "@withCollection2": places
 - id: C442
   name: DELETE a relationship removes it from the edge collection
   mapping_fixture: pg
