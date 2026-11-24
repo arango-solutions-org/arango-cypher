@@ -111,6 +111,11 @@ from .nl2cypher.tenant_scope import (
     EntityTenantRole,
     TenantScopeManifest,
 )
+from .tenant_plan_validator import (
+    traversal_confined_to_tenant,
+    traversal_graph_name,
+    traversal_vertex_collections,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -259,32 +264,69 @@ def _condition_covers_tenant(
     return False
 
 
-def _traversal_prune_uses_tenant(node: dict[str, Any]) -> bool:
-    """TraversalNode's ``options.prune`` references ``@tenantId``."""
-    options = node.get("options") or {}
-    if not isinstance(options, dict):
-        return False
-    prune = options.get("prune")
-    if isinstance(prune, str):
-        # Older plan shapes serialise prune as the source expression
-        # string. We accept both the bare ``@tenantId`` form and the
-        # accidentally-doubled ``@@tenantId`` form that some clients
-        # emit when stringifying bind references.
-        return "@tenantId" in prune or "@@tenantId" in prune
-    if isinstance(prune, dict):
-        return _expr_references_tenant_bindvar(prune)
-    return False
+#: A clause keyword that ends the expression before it (a PRUNE condition).
+_CLAUSE_KEYWORD = re.compile(
+    r"(?i)(OPTIONS|FILTER|PRUNE|SORT|LIMIT|COLLECT|RETURN|LET|INSERT|UPDATE|REPLACE|REMOVE|UPSERT|FOR|WINDOW|SEARCH)\b"
+)
+_OPENERS = {"(": ")", "[": "]", "{": "}"}
 
 
-def _expr_references_tenant_bindvar(expr: dict[str, Any]) -> bool:
-    if not isinstance(expr, dict):
-        return False
-    if _is_bindvar_named(expr, TENANT_ID_BIND):
-        return True
-    for sub in expr.get("subNodes") or []:
-        if isinstance(sub, dict) and _expr_references_tenant_bindvar(sub):
-            return True
-    return False
+def _skip_quoted_or_comment(aql: str, i: int) -> int:
+    """If a string, quoted name or comment starts at *i*, the index after it; else *i*."""
+    ch = aql[i]
+    if ch in "'\"`´":
+        j = i + 1
+        while j < len(aql) and aql[j] != ch:
+            j += 2 if aql[j] == "\\" else 1
+        return j + 1
+    if aql.startswith("//", i):
+        end = aql.find("\n", i)
+        return len(aql) if end < 0 else end
+    if aql.startswith("/*", i):
+        end = aql.find("*/", i + 2)
+        return len(aql) if end < 0 else end + 2
+    return i
+
+
+def _expression_end(aql: str, i: int) -> int:
+    """The index of the clause keyword ending the expression that starts at
+    *i*, outside brackets, strings and comments (the end of *aql* if none)."""
+    depth = 0
+    while i < len(aql):
+        skipped = _skip_quoted_or_comment(aql, i)
+        if skipped != i:
+            i = skipped
+            continue
+        ch = aql[i]
+        if ch in _OPENERS:
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif depth == 0 and (i == 0 or not (aql[i - 1].isalnum() or aql[i - 1] == "_")):
+            if _CLAUSE_KEYWORD.match(aql, i):
+                return i
+        i += 1
+    return len(aql)
+
+
+def _object_end(aql: str, i: int) -> int | None:
+    """The index after the ``{…}`` object that starts at *i*, or None."""
+    if i >= len(aql) or aql[i] != "{":
+        return None
+    depth = 0
+    while i < len(aql):
+        skipped = _skip_quoted_or_comment(aql, i)
+        if skipped != i:
+            i = skipped
+            continue
+        if aql[i] in _OPENERS:
+            depth += 1
+        elif aql[i] in ")]}":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +497,8 @@ class _Rewriter:
     manifest: TenantScopeManifest
     collection_to_entity: dict[str, str]
     bind_vars: dict[str, Any] = field(default_factory=dict)
+    #: The session tenant, as this pass's EXPLAIN resolves ``@tenantId``.
+    tenant_id: str | None = None
     edits: list[_Edit] = field(default_factory=list)
     changes: list[str] = field(default_factory=list)
     seen_sites: set[str] = field(default_factory=set)
@@ -546,13 +590,11 @@ class _Rewriter:
         TraversalNode); the optional edge / path variables are matched
         if present, with regex-optional groups when they're not.
         """
-        # Build the variable list permutation: v, v,e, v,e,p — match
-        # the actual variables the plan reports.
-        vars_pat = re.escape(vertex_outvar)
-        if edge_outvar:
-            vars_pat += rf"\s*,\s*{re.escape(edge_outvar)}"
-            if path_outvar:
-                vars_pat += rf"\s*,\s*{re.escape(path_outvar)}"
+        # The vertex variable, then whatever edge and path variables the
+        # source names: the plan leaves out one the query does not read
+        # (``FOR v, e, p`` with ``e`` unused reports only ``v`` and ``p``).
+        del edge_outvar, path_outvar
+        vars_pat = re.escape(vertex_outvar) + r"(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*){0,2}"
         # Match up to (but not including) the next clause keyword or
         # the literal "RETURN" / "FILTER" / "LET" / "OPTIONS" /
         # "PRUNE" — capturing the full header so we can splice
@@ -799,35 +841,36 @@ class _Rewriter:
         self.edits.append(_Edit(offset=offset, text=insertion, site_key=site_key, change=change_text))
         self.changes.append(change_text)
 
-    def rewrite_traversal(self, node: dict[str, Any]) -> None:
-        """For ``TraversalNode`` over a non-disjoint graph, attach
-        ``OPTIONS { prune: <v>.<field> != @tenantId }`` so the
-        traversal halts the moment it crosses a tenant boundary.
+    def rewrite_traversal(self, node: dict[str, Any], calcs_by_outvar: dict[str, dict[str, Any]]) -> None:
+        """For a ``TraversalNode`` over a non-disjoint graph, add
+        ``PRUNE <v>.<field> != @tenantId`` and ``FILTER <v>.<field> ==
+        @tenantId``: the traversal stops at a vertex of another tenant
+        and does not yield it, so neither the vertex nor a path through
+        it comes back. Layer 5 requires both
+        (:func:`tenant_plan_validator.traversal_confined_to_tenant`).
+
+        An existing PRUNE becomes ``PRUNE <v>.<field> != @tenantId OR
+        (<existing>)``; an existing ``OPTIONS {…}`` stays after the PRUNE,
+        and the FILTER follows it.
 
         Skipped when:
 
         * The graph is a disjoint smartgraph — storage enforces the
           tenant boundary, no rewrite needed (Layer 5 already
           recognises this path).
-        * The traversal's ``options.prune`` already references
-          ``@tenantId`` — idempotency.
+        * The traversal already prunes and filters on the tenant —
+          idempotency.
         * All vertex collections are satellite — there is no tenant
           field to scope on, and Layer 5 accepts the traversal.
         """
-        graph_name = node.get("graphName")
-        if isinstance(graph_name, str) and _is_disjoint_smartgraph(graph_name, self.sharding_profile):
-            return
-        if _traversal_prune_uses_tenant(node):
+        graph_name = traversal_graph_name(node)
+        if graph_name and _is_disjoint_smartgraph(graph_name, self.sharding_profile):
             return
 
-        # Determine the prune field — prefer the vertex outvar's
-        # collection denorm field when discoverable, fall back to a
-        # smart-graph attribute. We probe every vertex collection the
-        # traversal touches and refuse if NONE of them carry a
-        # tenant-scoped attribute (i.e. the traversal really is
-        # satellite-only and Layer 5 will accept it).
-        vertex_colls = _traversal_vertex_collections(node, self.sharding_profile)
-        non_satellite_field: str | None = None
+        # The tenant field the traversal's tenant-scoped vertex
+        # collections share; refuse when there is none or several.
+        vertex_colls = traversal_vertex_collections(node, self.sharding_profile)
+        fields: set[str] = set()
         all_satellite = True
         for coll in vertex_colls:
             kind = _layout_kind(coll, self.sharding_profile)
@@ -841,21 +884,34 @@ class _Rewriter:
                 self.collection_to_entity,
             )
             if field_name:
-                non_satellite_field = field_name
-                break
+                fields.add(field_name)
         if all_satellite:
             return
-        if not non_satellite_field:
+        if len(fields) != 1:
             raise AqlRewriteError(
                 code="UNCONSTRAINED_TRAVERSAL",
                 message=(
                     f"TraversalNode over non-satellite vertex collections "
-                    f"{vertex_colls!r} has no resolvable tenant field; "
-                    "Layer 4 cannot inject a safe prune predicate"
+                    f"{vertex_colls!r} has "
+                    + (
+                        "no resolvable tenant field"
+                        if not fields
+                        else f"several tenant fields {sorted(fields)!r}"
+                    )
+                    + "; Layer 4 cannot inject a safe prune predicate"
                 ),
             )
+        (tenant_field,) = fields
 
         vertex_outvar = _vertex_outvar_name(node) or "v"
+        if traversal_confined_to_tenant(
+            node,
+            vertex_var=vertex_outvar,
+            tenant_field=tenant_field,
+            sentinel=self.tenant_id,
+            filter_exprs=[_expr(calc) for calc in calcs_by_outvar.values()],
+        ):
+            return
         edge_outvar = (
             (node.get("edgeOutVariable") or {}).get("name")
             if isinstance(node.get("edgeOutVariable"), dict)
@@ -877,45 +933,56 @@ class _Rewriter:
                     "traversal header"
                 ),
             )
-        start, end = span
+        _, end = span
 
         site_key = f"trav::{vertex_outvar}::{graph_name}"
         if site_key in self.seen_sites:
             return
         self.seen_sites.add(site_key)
 
-        # AMBIGUITY: when the source already has an ``OPTIONS {...}``
-        # clause we *don't* try to merge our prune into it — that
-        # would require parsing the existing options expression, which
-        # is the local-parser path we explicitly chose not to take.
-        # Instead, we splice a FILTER after the traversal header,
-        # which is observationally weaker than prune (the traversal
-        # still visits cross-tenant vertices, just doesn't yield
-        # them) but is still accepted by Layer 5 via the per-vertex
-        # filter calculation. The prune form is strictly preferred
-        # and used whenever there is no pre-existing OPTIONS clause.
-        # A future MT-4.1 should add prune-merging when OPTIONS is
-        # present.
-        existing_options = re.search(
-            r"\bOPTIONS\b",
-            self.aql[start:end],
-            re.IGNORECASE,
-        )
-        if existing_options:
-            insertion = f"\n  FILTER {vertex_outvar}.{non_satellite_field} == @{TENANT_ID_BIND}"
-            offset = end
-            change_text = (
-                f"Added FILTER {vertex_outvar}.{non_satellite_field} == @{TENANT_ID_BIND} "
-                f"after TraversalNode header (existing OPTIONS preserved)"
-            )
+        outside = f"{vertex_outvar}.{tenant_field} != @{TENANT_ID_BIND}"
+        inside = f"{vertex_outvar}.{tenant_field} == @{TENANT_ID_BIND}"
+        inserts: list[tuple[int, str]] = []
+        after = end
+        existing_prune = re.match(r"\s*PRUNE\b", self.aql[end:], re.IGNORECASE)
+        if existing_prune:
+            expr_start = end + existing_prune.end()
+            expr_end = _expression_end(self.aql, expr_start)
+            if re.match(r"\s*[A-Za-z_]\w*\s*=(?!=)", self.aql[expr_start:expr_end]):
+                raise AqlRewriteError(
+                    code="UNCONSTRAINED_TRAVERSAL",
+                    message="a PRUNE that assigns a variable cannot be extended with the tenant boundary",
+                )
+            close_at = expr_start + len(self.aql[expr_start:expr_end].rstrip())
+            inserts += [(expr_start, f" {outside} OR ("), (close_at, ")")]
+            after = expr_end
         else:
-            insertion = f"\n  OPTIONS {{ prune: {vertex_outvar}.{non_satellite_field} != @{TENANT_ID_BIND} }}"
-            offset = end
-            change_text = (
-                f"Added OPTIONS {{ prune: {vertex_outvar}.{non_satellite_field} != @{TENANT_ID_BIND} }} "
-                f"to traversal over {vertex_outvar}"
+            inserts.append((end, f"\n  PRUNE {outside}"))
+        options = re.match(r"\s*OPTIONS\s*", self.aql[after:], re.IGNORECASE)
+        if options:
+            options_end = _object_end(self.aql, after + options.end())
+            if options_end is None:
+                raise AqlRewriteError(
+                    code="REWRITE_SITE_NOT_FOUND",
+                    message=f"the OPTIONS of traversal FOR {vertex_outvar} IN ... is not an object literal",
+                )
+            after = options_end
+        inserts.append((after, f"\n  FILTER {inside}"))
+
+        change_text = f"Added PRUNE {outside} and FILTER {inside} to traversal over {vertex_outvar}" + (
+            " (existing PRUNE kept)" if existing_prune else ""
+        )
+        # One edit per offset, in order: two at one offset would be
+        # spliced in reverse.
+        merged: dict[int, str] = {}
+        for offset, text in inserts:
+            merged[offset] = merged.get(offset, "") + text
+        for i, (offset, text) in enumerate(sorted(merged.items())):
+            if offset < len(self.aql) and not self.aql[offset].isspace() and text[-1] != "(":
+                text += " "  # keep the clause that follows a separate word
+            self.edits.append(
+                _Edit(offset=offset, text=text, site_key=f"{site_key}::{i}", change=change_text)
             )
-        self.edits.append(_Edit(offset=offset, text=insertion, site_key=site_key, change=change_text))
         self.changes.append(change_text)
 
     # ---- Apply -------------------------------------------------------
@@ -985,7 +1052,7 @@ def _walk_plan(
         elif ntype == "IndexNode":
             rewriter.rewrite_index(node, calcs_by_outvar)
         elif ntype == "TraversalNode":
-            rewriter.rewrite_traversal(node)
+            rewriter.rewrite_traversal(node, calcs_by_outvar)
         elif ntype == "SubqueryNode":
             sub_plan = node.get("subquery") or {}
             if isinstance(sub_plan, dict):
@@ -1147,6 +1214,7 @@ def inject_tenant_scope(
         manifest=manifest,
         collection_to_entity=collection_to_entity or {},
         bind_vars=augmented,
+        tenant_id=tenant_id,
     )
     _walk_plan(plan, rewriter)
     rewritten = rewriter.apply()
