@@ -1,0 +1,94 @@
+version: 1
+cases:
+  - id: C1425
+    name: EXISTS checks the target's label and properties and the relationship's properties
+    mapping_fixture: pg
+    extensions_enabled: false
+    cypher: |
+      MATCH (u:User)
+      WHERE EXISTS { (u)-[:FOLLOWS {w: 2}]->(:User {name: 'c'}) }
+      RETURN u.name
+    expected:
+      aql: |
+        WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection
+        FOR u IN @@collection
+          FILTER (LENGTH(FOR _sq_v, _sq_r IN 1..1 OUTBOUND u @@edgeCollection FILTER IS_SAME_COLLECTION(@vCollection, _sq_v) FILTER (_sq_r.w == 2) FILTER (_sq_v.name == 'c') RETURN 1) > 0)
+          RETURN u.name
+      bind_vars:
+        "@collection": users
+        "@edgeCollection": follows
+        vCollection: users
+        "@withCollection0": docs
+        "@withCollection1": persons
+        "@withCollection2": places
+  - id: C1426
+    name: COUNT over a variable-length relationship checks its properties on every edge
+    mapping_fixture: lpg
+    extensions_enabled: false
+    cypher: |
+      MATCH (u:User)
+      RETURN u.name AS n, COUNT { (u)-[:FOLLOWS*1..2 {w: 1}]->() } AS k
+    expected:
+      aql: |
+        WITH @@collection
+        FOR u IN @@collection
+          FILTER u[@typeField] == @typeValue
+          RETURN {n: u.name, k: LENGTH(FOR _sq_v, _sq_r, _sq__hop_path IN 1..2 OUTBOUND u @@edgeCollection PRUNE _sq_r != null AND _sq_r[@relTypeField] != @relTypeValue FILTER IS_SAME_COLLECTION(@vCollection, _sq_v) FILTER _sq_r[@relTypeField] == @relTypeValue FILTER LENGTH(_sq__hop_path.edges[* FILTER NOT ((CURRENT.w == 1))]) == 0 RETURN 1)}
+      bind_vars:
+        "@collection": vertices
+        typeField: type
+        typeValue: User
+        "@edgeCollection": edges
+        vCollection: vertices
+        relTypeField: type
+        relTypeValue: FOLLOWS
+  - id: C1427
+    name: EXISTS with two MATCH clauses tests both
+    mapping_fixture: lpg
+    extensions_enabled: false
+    cypher: |
+      MATCH (u:User)
+      WHERE EXISTS { MATCH (u)-[:FOLLOWS]->(x) MATCH (x)-[:FOLLOWS]->(:Doc) }
+      RETURN u.name
+    expected:
+      aql: |
+        WITH @@collection
+        FOR u IN @@collection
+          FILTER u[@typeField] == @typeValue
+          FILTER (LENGTH(FOR _sq_x, _sq_r IN 1..1 OUTBOUND u @@edgeCollection FILTER IS_SAME_COLLECTION(@vCollection, _sq_x) FILTER _sq_r[@relTypeField] == @relTypeValue FOR _sq_v, _sq_r_1 IN 1..1 OUTBOUND _sq_x @@edgeCollection2 FILTER IS_SAME_COLLECTION(@vCollection2, _sq_v) FILTER _sq_v[@vTypeField] == @vTypeValue FILTER _sq_r_1[@relTypeField2] == @relTypeValue2 RETURN 1) > 0)
+          RETURN u.name
+      bind_vars:
+        "@collection": vertices
+        typeField: type
+        typeValue: User
+        "@edgeCollection": edges
+        vCollection: vertices
+        relTypeField: type
+        relTypeValue: FOLLOWS
+        "@edgeCollection2": edges
+        vCollection2: vertices
+        vTypeField: type
+        vTypeValue: Doc
+        relTypeField2: type
+        relTypeValue2: FOLLOWS
+  - id: C1428
+    name: EXISTS with a count grouped by the outer node has no row when nothing matched
+    mapping_fixture: pg
+    extensions_enabled: false
+    cypher: |
+      MATCH (u:User)
+      WHERE EXISTS { MATCH (u)-[:FOLLOWS]->(:Doc) WITH u, count(*) AS c RETURN true }
+      RETURN u.name
+    expected:
+      aql: |
+        WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection
+        FOR u IN @@collection
+          FILTER (LENGTH(FOR _sq_v, _sq_r IN 1..1 OUTBOUND u @@edgeCollection FILTER IS_SAME_COLLECTION(@vCollection, _sq_v) COLLECT WITH COUNT INTO _sq_c FILTER _sq_c > 0 RETURN 1) > 0)
+          RETURN u.name
+      bind_vars:
+        "@collection": users
+        "@edgeCollection": follows
+        vCollection: docs
+        "@withCollection0": docs
+        "@withCollection1": persons
+        "@withCollection2": places

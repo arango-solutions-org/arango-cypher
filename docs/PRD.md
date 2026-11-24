@@ -1091,13 +1091,23 @@ is one row whose variables are null, and `SET`/`REMOVE`/`DELETE` of null does
 nothing (each write is guarded: `FOR _w IN (n == null ? [] : [n]) UPDATE _w …`).
 `SKIP`/`LIMIT` refuse a parameter whose value is not a non-negative integer.
 
-An `EXISTS { … }` pattern correlates with a node only when the query binds
-that name before the subquery (`scopes.py`); otherwise the name is the
-subquery's own variable (a traversal target, or a scan of the unlabeled-node
-collection for a single node), and a named relationship is the subquery's
-edge variable. A multi-hop pattern inside `EXISTS { }` compiles as a MATCH
-over the outer query's bound variables, every hop tested; with a `WITH`
-aggregation it fails closed rather than being shortened to its first hop.
+An `EXISTS { … }` or `COUNT { … }` pattern correlates with a node only when
+the query binds that name before the subquery (`scopes.py`); otherwise the
+name is the subquery's own variable, and a named relationship is the
+subquery's edge variable. The body compiles as a MATCH over the outer query's
+bound variables (the compiler for a MATCH after `WITH`), so it means what the
+same MATCH means anywhere else: every MATCH clause and comma-separated part,
+every hop, the labels and inline properties of each node (bound or not) and
+of each relationship, and a variable-length relationship's properties on
+every edge. A node with several labels is scanned by one and filtered on the
+others, there and in a MATCH after `WITH`. A body with only outer variables
+(`EXISTS { (n) WHERE n.x > 1 }`) is their filters, over one row. The
+subquery's own AQL variables are named `_sq_…`, so none is declared twice
+with the outer query's. A `MATCH … WITH [k,] count(*) AS c [WHERE …]` body
+counts the pattern's rows: with no key there is always one row (a count of
+0 when nothing matched), and grouped by a variable of the outer query there
+is none when nothing matched, as in Cypher. Any other reading clause in the
+body (`OPTIONAL MATCH`, `UNWIND`) fails closed rather than being skipped.
 
 **Multi-label nodes in a type-discriminated collection.** A `LABEL` entity
 mapping may name a `labelsField` (`"labels"`) besides its `typeField`: a node
