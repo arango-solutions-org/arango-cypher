@@ -1795,21 +1795,36 @@ def _compile_leading_match(
             lines=lines,
         )
         return lines, forbidden_vars, env
+    lines, forbidden_vars = _compile_match_from_nothing(match_ctx, resolver=resolver, bind_vars=bind_vars)
+    return lines, forbidden_vars, {v: v for v in forbidden_vars}
+
+
+def _compile_match_from_nothing(
+    match_ctx: CypherParser.OC_MatchContext,
+    *,
+    resolver: MappingResolver,
+    bind_vars: dict[str, Any],
+) -> tuple[list[str], set[str]]:
+    """The FOR/FILTER lines of a MATCH that binds from nothing, read as a
+    plain MATCH (the caller handles ``OPTIONAL``), and the AQL names in use.
+
+    Every part, a named path and the WHERE are compiled; a named variable's
+    AQL name is its Cypher name. Used before a WITH and before
+    ``SET``/``DELETE``/``REMOVE`` (``write_mutate``).
+    """
     parts = match_ctx.oC_Pattern().oC_PatternPart() or []
     if len(parts) > 1 or any(part.oC_Variable() is not None for part in parts):
         # ``MATCH (a {…}), (b {…}), … WITH …`` — the disconnected-parts compiler
         # the single-query path already uses (LDBC IC3, IC4, BI11, BI14); it
         # also binds a named path (``MATCH p = (a)-->(b) WITH p …``).
         where = match_ctx.oC_Where()
-        lines, forbidden_vars = _compile_match_multi_parts_from_parts(
+        return _compile_match_multi_parts_from_parts(
             list(parts),
             extra_wheres=[where] if where is not None else [],
             resolver=resolver,
             bind_vars=bind_vars,
         )
-    else:
-        lines, forbidden_vars = _compile_match_pipeline(match_ctx, resolver=resolver, bind_vars=bind_vars)
-    return lines, forbidden_vars, {v: v for v in forbidden_vars}
+    return _compile_match_pipeline(match_ctx, resolver=resolver, bind_vars=bind_vars)
 
 
 def _compile_pipeline_unwind(

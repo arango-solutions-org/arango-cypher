@@ -8,27 +8,19 @@ from typing import Any
 from arango_query_core import AqlQuery, CoreError, MappingResolver
 
 from .._antlr.CypherParser import CypherParser
-from .label_tests import label_test
 from .naming import _aql_collection_ref, _pick_bind_key, _pick_fresh_var, _strip_label_backticks
 from .pipeline_writes import end_on_write
 from .property_writes import keep_fields_for
-from .supertypes import union_scan_source
 from .write_create import _find_or_create_collection_bind_key
 from .writes import (
     _append_return,
     _compile_expression,
-    _compile_label_predicate,
-    _compile_node_pattern_properties,
-    _compile_relationship_pattern_properties,
-    _compile_where,
     _extract_node_var_and_labels,
     _extract_relationship_type_and_var,
     _infer_unlabeled_collection,
-    _multi_label_filter,
     _pick_primary_entity_label,
     _property_writes,
     _refuse_repeated_collections,
-    _relationship_direction,
     _resolve_relationship_for_pattern,
     _stored_write_line,
 )
@@ -76,151 +68,23 @@ def _translate_mutating_query(
             bind_vars=bind_vars,
         )
     mc = match_ctxs[0]
-    pattern = mc.oC_Pattern()
-    parts = pattern.oC_PatternPart() or []
+    parts = mc.oC_Pattern().oC_PatternPart() or []
     if not parts:
         raise CoreError("MATCH pattern is required", code="UNSUPPORTED")
-    if len(parts) > 1:
-        raise CoreError(
-            "SET/DELETE/REMOVE after a MATCH with several pattern parts is not supported: only the "
-            "first part would be applied, writing rows the others exclude",
-            code="UNSUPPORTED",
-        )
 
-    anon = parts[0].oC_AnonymousPatternPart()
-    elem = anon.oC_PatternElement()
-    start_node = elem.oC_NodePattern()
-    if start_node is None:
-        raise CoreError("MATCH requires a node pattern", code="UNSUPPORTED")
+    # The pattern compiles as any MATCH does (every part, a named path, the
+    # WHERE); a named variable's AQL name is its Cypher name.
+    from .core import _compile_match_from_nothing
 
-    chains = elem.oC_PatternElementChain() or []
-    var, labels = _extract_node_var_and_labels(start_node, default_var="n")
-    prop_filters = _compile_node_pattern_properties(start_node, var=var, bind_vars=bind_vars)
-
-    lines: list[str] = [f"FOR {var} IN @@collection"]
-    # Bind key of the collection each pattern variable lives in, for writes.
-    # ``None``: the variable cannot be written (a variable-length relationship
-    # is a list of edges).
-    write_keys: dict[str, str | None] = {var: "@collection"}
-    # Variables matched by a UNION supertype, whose documents live in several
-    # collections: an UPDATE/REMOVE names one, so they cannot be written.
-    union_vars: dict[str, str] = {}
-
-    if labels:
-        primary = _pick_primary_entity_label(labels, resolver)
-        entity_mapping = resolver.resolve_entity(_strip_label_backticks(primary))
-
-        style = entity_mapping.get("style")
-        if style == "UNION":
-            lines = [
-                f"FOR {var} IN {union_scan_source(var, primary, resolver, bind_vars, filters=prop_filters)}"
-            ]
-            prop_filters = []
-            union_vars[var] = _strip_label_backticks(primary)
-        else:
-            bind_vars["@collection"] = entity_mapping["collectionName"]
-        if style == "LABEL":
-            bind_vars["typeField"] = entity_mapping["typeField"]
-            bind_vars["typeValue"] = entity_mapping["typeValue"]
-            lines.append("  FILTER " + label_test(var, "typeField", "typeValue", entity_mapping, bind_vars))
-        elif style == "MULTI_LABEL":
-            lines.append(f"  FILTER {_multi_label_filter(var, entity_mapping, bind_vars)}")
-        elif style not in ("COLLECTION", "UNION"):
-            raise CoreError(f"Unsupported entity mapping style: {style}", code="INVALID_MAPPING")
-    else:
-        # Unlabeled ``MATCH (n) SET/DELETE/REMOVE …``: resolve to the single
-        # domain collection using the same inference the read path uses. Fails
-        # closed (CoreError) when the schema has more than one candidate
-        # collection, so we never silently mutate the wrong store.
-        bind_vars["@collection"] = _infer_unlabeled_collection(resolver)
-
-    for f in prop_filters:
-        lines.append(f"  FILTER {f}")
-
-    # Handle relationship chain if present
-    current = var
-    for chain in chains:
-        rel_pat = chain.oC_RelationshipPattern()
-        v_node = chain.oC_NodePattern()
-        if rel_pat is None or v_node is None:
-            raise CoreError("Invalid pattern in SET/DELETE", code="UNSUPPORTED")
-
-        v_var, v_labels = _extract_node_var_and_labels(v_node, default_var="v")
-        rel_type, rel_var, rel_range = _extract_relationship_type_and_var(rel_pat, default_var="r")
-        direction = _relationship_direction(rel_pat)
-
-        r_map = _resolve_relationship_for_pattern(resolver, rel_type)
-        edge_key = _pick_bind_key("@edgeCollection", bind_vars)
-        bind_vars[edge_key] = r_map.get("edgeCollectionName") or r_map.get("collectionName")
-
-        rmin, rmax = rel_range
-        edge_ref = _aql_collection_ref(edge_key)
-        lines.append(f"  FOR {v_var}, {rel_var} IN {rmin}..{rmax} {direction} {current} {edge_ref}")
-        write_keys[rel_var] = edge_key if (rmin, rmax) == (1, 1) else None
-
-        if v_labels:
-            v_primary = _pick_primary_entity_label(v_labels, resolver)
-            v_map = resolver.resolve_entity(_strip_label_backticks(v_primary))
-            v_style = v_map.get("style")
-            if v_style == "UNION":
-                union_vars[v_var] = _strip_label_backticks(v_primary)
-                write_keys[v_var] = None
-            else:
-                write_keys[v_var] = _find_or_create_collection_bind_key(
-                    "@collection", v_map["collectionName"], bind_vars
-                )
-            if v_style == "LABEL":
-                vtf = _pick_bind_key("vTypeField", bind_vars)
-                vtv = _pick_bind_key("vTypeValue", bind_vars)
-                bind_vars[vtf] = v_map.get("typeField")
-                bind_vars[vtv] = v_map.get("typeValue")
-                lines.append("    FILTER " + label_test(v_var, vtf, vtv, v_map, bind_vars))
-            elif v_style == "MULTI_LABEL":
-                lines.append(f"    FILTER {_multi_label_filter(v_var, v_map, bind_vars)}")
-            elif v_style not in ("COLLECTION", "UNION"):
-                raise CoreError(f"Unsupported entity mapping style: {v_style}", code="INVALID_MAPPING")
-            elif not (
-                len(v_labels) == 1
-                and rel_type is not None
-                and resolver.edge_constrains_target(rel_type, _strip_label_backticks(v_primary), direction)
-            ):
-                # The edge may lead into another collection (a polymorphic
-                # LIKES reaches posts and comments): keep only the labelled
-                # one — or, for a UNION supertype, its members — as the read
-                # path does, or the write touches the others.
-                pred = _compile_label_predicate(v_var, v_node.oC_NodeLabels(), bind_vars)
-                if pred is not None:
-                    lines.append(f"    FILTER {pred}")
-
-        r_style = r_map.get("style")
-        if r_style == "GENERIC_WITH_TYPE":
-            rtf = _pick_bind_key("relTypeField", bind_vars)
-            rtv = _pick_bind_key("relTypeValue", bind_vars)
-            bind_vars[rtf] = r_map.get("typeField")
-            bind_vars[rtv] = r_map.get("typeValue")
-            lines.append(f"    FILTER {rel_var}[@{rtf}] == @{rtv}")
-
-        for f in _compile_relationship_pattern_properties(rel_pat, var=rel_var, bind_vars=bind_vars):
-            lines.append(f"    FILTER {f}")
-        for f in _compile_node_pattern_properties(v_node, var=v_var, bind_vars=bind_vars):
-            lines.append(f"    FILTER {f}")
-
-        if not v_labels:
-            # An unlabeled end node lives wherever the edge leads; resolve it
-            # the way the read path does, failing closed when that is ambiguous.
-            write_keys.setdefault(v_var, "")
-        current = v_var
-
-    where_ctx = mc.oC_Where()
-    if where_ctx is not None:
-        wf = _compile_where(where_ctx.oC_Expression(), bind_vars)
-        lines.append(f"  FILTER {wf}")
+    lines, forbidden = _compile_match_from_nothing(mc, resolver=resolver, bind_vars=bind_vars)
+    write_targets, union_vars, row_vars = _write_targets(parts, resolver=resolver)
+    # Bind key of the collection each written variable lives in.
+    write_keys: dict[str, str] = {}
 
     # ``OPTIONAL MATCH … SET/REMOVE/DELETE``: with no match there is one row
     # whose variables are null, and a write to null does nothing.
     optional = mc.OPTIONAL() is not None
     if optional:
-        row_vars = list(write_keys)
         lines = [
             "LET _opt_rows = (",
             *(f"  {ln}" for ln in lines),
@@ -235,29 +99,31 @@ def _translate_mutating_query(
         return f"FOR _w IN ({var} == null ? [] : [{var}]) {statement}"
 
     def write_key_for(target_var: str, verb: str) -> str:
-        if target_var not in write_keys:
+        if target_var in write_keys:
+            return write_keys[target_var]
+        if target_var not in write_targets:
             raise CoreError(
-                f"{verb} targets {target_var!r}, which is not bound by the first MATCH pattern",
+                f"{verb} targets {target_var!r}, which is not a node or relationship of the MATCH pattern",
                 code="UNSUPPORTED",
             )
-        key = write_keys[target_var]
+        target = write_targets[target_var]
         if target_var in union_vars:
             raise CoreError(
                 f"{verb} on {target_var!r} is not supported: it is matched as the supertype "
                 f"{union_vars[target_var]!r}, whose members live in several collections",
                 code="UNSUPPORTED",
             )
-        if key is None:
+        if target is None:
             raise CoreError(
                 f"{verb} on {target_var!r}, a variable-length relationship (a list of edges), "
                 "is not supported",
                 code="UNSUPPORTED",
             )
-        if key == "":
-            key = _find_or_create_collection_bind_key(
-                "@collection", _infer_unlabeled_collection(resolver), bind_vars
-            )
-            write_keys[target_var] = key
+        base, collection = target
+        if collection is None:
+            collection = _infer_unlabeled_collection(resolver)
+        key = _find_or_create_collection_bind_key(base, collection, bind_vars)
+        write_keys[target_var] = key
         return key
 
     # SET and REMOVE: one write per variable, in its own collection.
@@ -276,11 +142,11 @@ def _translate_mutating_query(
             if ret is None:
                 # Nothing reads the written document: a plain subquery, which
                 # ``end_on_write`` turns into the last statement if it is last.
-                done = _pick_fresh_var(f"_set_{target_var}", forbidden_vars=set(write_keys))
+                done = _pick_fresh_var(f"_set_{target_var}", forbidden_vars=forbidden | set(row_vars))
                 lines.append(f"  LET {done} = ({guarded(target_var, statement)})")
                 continue
             updated = _pick_fresh_var(
-                f"{target_var}_new", forbidden_vars=set(write_keys) | set(return_env.values())
+                f"{target_var}_new", forbidden_vars=forbidden | set(row_vars) | set(return_env.values())
             )
             lines.append(f"  LET {updated} = FIRST({guarded(target_var, statement)} RETURN NEW)")
             return_env[target_var] = updated
@@ -288,7 +154,7 @@ def _translate_mutating_query(
         lines.append(_stored_write_line(target_var, _aql_collection_ref(key), write))
         if ret is not None:
             updated = _pick_fresh_var(
-                f"{target_var}_new", forbidden_vars=set(write_keys) | set(return_env.values())
+                f"{target_var}_new", forbidden_vars=forbidden | set(row_vars) | set(return_env.values())
             )
             lines.append(f"  LET {updated} = NEW")
             return_env[target_var] = updated
@@ -327,7 +193,7 @@ def _translate_mutating_query(
 
     # Optional RETURN
     if ret is not None:
-        var_env = {v: return_env.get(v, v) for v in write_keys} if return_env else None
+        var_env = {v: return_env.get(v, v) for v in row_vars} if return_env else None
         _append_return(ret.oC_ProjectionBody(), lines=lines, bind_vars=bind_vars, var_env=var_env)
     else:
         # ``OPTIONAL MATCH … SET`` / ``DELETE`` with no RETURN ends on a
@@ -336,3 +202,71 @@ def _translate_mutating_query(
         end_on_write(lines)
 
     return AqlQuery(text="\n".join(lines), bind_vars=bind_vars)
+
+
+def _write_targets(
+    parts: list[CypherParser.OC_PatternPartContext],
+    *,
+    resolver: MappingResolver,
+) -> tuple[dict[str, tuple[str, str | None] | None], dict[str, str], list[str]]:
+    """What each named variable of the MATCH *parts* can be written in.
+
+    Returns ``(write_targets, union_vars, row_vars)``. *write_targets* maps a
+    node or relationship to ``(bind key base, collection)``, the collection
+    ``None`` for an unlabeled node (inferred when it is written, failing
+    closed when that is ambiguous); the bind key is made only when the
+    variable is written, as ArangoDB refuses an unused one (ERR 1552). It
+    maps to ``None`` what cannot be written — a variable-length
+    relationship (a list of edges) or a node matched by a UNION supertype,
+    which *union_vars* names. *row_vars* lists every named variable, the path
+    included, in pattern order.
+    """
+    targets: dict[str, tuple[str, str | None] | None] = {}
+    union_vars: dict[str, str] = {}
+    row_vars: list[str] = []
+
+    def seen(name: str) -> None:
+        if name not in row_vars:
+            row_vars.append(name)
+
+    for part in parts:
+        if part.oC_Variable() is not None:
+            seen(part.oC_Variable().getText().strip())
+        elem = part.oC_AnonymousPatternPart().oC_PatternElement()
+        chains = elem.oC_PatternElementChain() or []
+        for node in [elem.oC_NodePattern(), *(chain.oC_NodePattern() for chain in chains)]:
+            if node is None or node.oC_Variable() is None:
+                continue
+            var, labels = _extract_node_var_and_labels(node, default_var="_")
+            seen(var)
+            if not labels:
+                targets.setdefault(var, ("@collection", None))
+                continue
+            known = targets.get(var)
+            if known is not None and known[1] is not None:
+                continue
+            primary = _pick_primary_entity_label(labels, resolver)
+            emap = resolver.resolve_entity(_strip_label_backticks(primary))
+            if emap.get("style") == "UNION":
+                union_vars[var] = _strip_label_backticks(primary)
+                targets[var] = None
+            else:
+                targets[var] = ("@collection", emap["collectionName"])
+        for chain in chains:
+            rel_pat = chain.oC_RelationshipPattern()
+            detail = rel_pat.oC_RelationshipDetail() if rel_pat is not None else None
+            if detail is None or detail.oC_Variable() is None:
+                continue
+            rel_type, rel_var, _ = _extract_relationship_type_and_var(rel_pat, default_var="_")
+            seen(rel_var)
+            if rel_var in targets:
+                continue
+            if detail.oC_RangeLiteral() is not None:
+                targets[rel_var] = None
+                continue
+            r_map = _resolve_relationship_for_pattern(resolver, rel_type)
+            targets[rel_var] = (
+                "@edgeCollection",
+                r_map.get("edgeCollectionName") or r_map.get("collectionName"),
+            )
+    return targets, union_vars, row_vars
