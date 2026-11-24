@@ -8,13 +8,18 @@ cases:
 
     '
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection\nFOR u IN @@collection\n  FILTER (LENGTH(FOR m, _sq_e IN 1..1 OUTBOUND u @@sqEdge RETURN 1) > 0)\n  RETURN u.name\n"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection
+      FOR u IN @@collection
+        FILTER (LENGTH(FOR _sq_m, _sq_r IN 1..1 OUTBOUND u @@edgeCollection FILTER IS_SAME_COLLECTION(@vCollection, _sq_m) RETURN 1) > 0)
+        RETURN u.name
     bind_vars:
-      '@collection': users
-      '@sqEdge': follows
-      '@withCollection0': docs
-      '@withCollection1': persons
-      '@withCollection2': places
+      "@collection": users
+      "@edgeCollection": follows
+      vCollection: users
+      "@withCollection0": docs
+      "@withCollection1": persons
+      "@withCollection2": places
 - id: C341
   name: exists subquery negated
   mapping_fixture: pg
@@ -23,13 +28,18 @@ cases:
 
     '
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection\nFOR u IN @@collection\n  FILTER (NOT (LENGTH(FOR m, _sq_e IN 1..1 OUTBOUND u @@sqEdge RETURN 1) > 0))\n  RETURN u.name\n"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection
+      FOR u IN @@collection
+        FILTER (NOT (LENGTH(FOR _sq_m, _sq_r IN 1..1 OUTBOUND u @@edgeCollection FILTER IS_SAME_COLLECTION(@vCollection, _sq_m) RETURN 1) > 0))
+        RETURN u.name
     bind_vars:
-      '@collection': users
-      '@sqEdge': follows
-      '@withCollection0': docs
-      '@withCollection1': persons
-      '@withCollection2': places
+      "@collection": users
+      "@edgeCollection": follows
+      vCollection: users
+      "@withCollection0": docs
+      "@withCollection1": persons
+      "@withCollection2": places
 - id: C342
   name: count subquery in return
   mapping_fixture: pg
@@ -38,13 +48,17 @@ cases:
 
     '
   expected:
-    aql: "WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection\nFOR u IN @@collection\n  RETURN {name: u.name, followerCount: LENGTH(FOR m, _sq_e IN 1..1 OUTBOUND u @@sqEdge RETURN 1)}\n"
+    aql: |
+      WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection
+      FOR u IN @@collection
+        RETURN {name: u.name, followerCount: LENGTH(FOR _sq_m, _sq_r IN 1..1 OUTBOUND u @@edgeCollection FILTER IS_SAME_COLLECTION(@vCollection, _sq_m) RETURN 1)}
     bind_vars:
-      '@collection': users
-      '@sqEdge': follows
-      '@withCollection0': docs
-      '@withCollection1': persons
-      '@withCollection2': places
+      "@collection": users
+      "@edgeCollection": follows
+      vCollection: users
+      "@withCollection0": docs
+      "@withCollection1": persons
+      "@withCollection2": places
 - id: C343
   name: count subquery in where
   mapping_fixture: pg
@@ -56,11 +70,12 @@ cases:
     aql: |
       WITH @@withCollection0, @@withCollection1, @@withCollection2, @@collection
       FOR u IN @@collection
-        FILTER (LENGTH(FOR m, _sq_e IN 1..1 OUTBOUND u @@sqEdge RETURN 1) > 5)
+        FILTER (LENGTH(FOR _sq_m, _sq_r IN 1..1 OUTBOUND u @@edgeCollection FILTER IS_SAME_COLLECTION(@vCollection, _sq_m) RETURN 1) > 5)
         RETURN u.name
     bind_vars:
       "@collection": users
-      "@sqEdge": follows
+      "@edgeCollection": follows
+      vCollection: users
       "@withCollection0": docs
       "@withCollection1": persons
       "@withCollection2": places

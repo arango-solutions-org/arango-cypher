@@ -118,7 +118,7 @@ def test_label_predicate_on_a_supertype():
 
 def test_exists_subquery_over_a_supertype():
     q = _t("MATCH (p:Person) WHERE EXISTS { MATCH (m:Message {id: 1}) } RETURN p.id")
-    assert _scan_branches(q, "m") == ["post", "comment"]
+    assert _scan_branches(q, "_sq_m") == ["post", "comment"]
 
 
 # ── writes ────────────────────────────────────────────────────────────
