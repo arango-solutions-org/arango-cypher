@@ -12,8 +12,9 @@ import pytest
 
 from arango_cypher import translate
 from arango_cypher._translate_v0 import cypher_values as cv
-from arango_cypher._translate_v0.const_eval import Evaluator, unescape_string_literal
+from arango_cypher._translate_v0.const_eval import Evaluator
 from arango_cypher._translate_v0.cypher_values import CypherEvalError, NotConstant
+from arango_cypher._translate_v0.literals import cypher_string_value
 from arango_cypher.parser import parse_cypher
 from tests.helpers.mapping_fixtures import mapping_bundle_for
 
@@ -121,8 +122,8 @@ def test_nan_is_not_folded_into_aql() -> None:
 
 
 def test_string_escapes() -> None:
-    assert unescape_string_literal(r"'a\tb\\c\'d'") == "a\tb\\c'd"
-    assert unescape_string_literal(r"'A'") == "A"
+    assert cypher_string_value(r"'a\tb\\c\'d'") == "a\tb\\c'd"
+    assert cypher_string_value(r"'A'") == "A"
 
 
 class TestTranslation:
