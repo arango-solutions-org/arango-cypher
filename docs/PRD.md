@@ -236,10 +236,14 @@ example because the server is unreachable, `nl_to_aql` returns no query with
 `method="server_check_failed"` and the failure in the explanation, and spends no
 further LLM calls. `POST /nl2aql` passes an `explain` backed by the session's
 database when the request has one, and keeps the regex check otherwise; only a
-400 or 404 refusal goes back to the model. A direction check is always on: a
+400 or 404 refusal goes back to the model. The server check runs only when the
+connected database holds every collection the mapping names; a mapping for
+another database keeps the regex check, since EXPLAIN would refuse every
+candidate on a collection the model was told to use. A direction check is always on: a
 traversal that starts from a `FOR v IN <collection>` variable or a
 `"collection/key"` literal at the end its direction walks into is sent back with
-the direction to use. It acts only on clear cases: the edge collection's every
+the direction to use. A loop variable bound to more than one collection in the
+query (for example, reused in sibling subqueries) is not used as a start. It acts only on clear cases: the edge collection's every
 relationship type has one known entity at each end and all of them name the same
 two different collections. A polymorphic end, an unknown end, or relationship
 types sharing a collection with different ends leave that collection unchecked.

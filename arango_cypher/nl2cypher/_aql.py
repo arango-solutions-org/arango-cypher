@@ -244,10 +244,15 @@ _TRAVERSAL_RE = re.compile(
 def _traversal_direction_problems(aql: str, endpoints: dict[str, tuple[str, str]]) -> list[str]:
     """Traversals that start at the end of an edge collection their direction walks into.
 
-    Only clear cases: the start is a ``FOR v IN <collection>`` variable or a
-    ``"collection/key"`` literal, and the edge's two ends are different collections.
+    Only clear cases: the start is a ``FOR v IN <collection>`` variable bound to that one
+    collection everywhere in the query, or a ``"collection/key"`` literal, and the edge's
+    two ends are different collections.
     """
-    var_col = {m.group(1): m.group(2) for m in _FOR_IN_RE.finditer(aql)}
+    var_cols: dict[str, set[str]] = {}
+    for m in _FOR_IN_RE.finditer(aql):
+        var_cols.setdefault(m.group(1), set()).add(m.group(2))
+    # a name reused over different collections (e.g. sibling subqueries) has no single start
+    var_col = {var: next(iter(cols)) for var, cols in var_cols.items() if len(cols) == 1}
     problems = []
     for m in _TRAVERSAL_RE.finditer(aql):
         direction, var, literal_col, edge_col = m.group(1).upper(), m.group(2), m.group(3), m.group(4)

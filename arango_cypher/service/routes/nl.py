@@ -8,9 +8,11 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from typing import Any
 
 from arango.database import StandardDatabase
 from arango.exceptions import AQLQueryExplainError
+from arango_query_core import MappingBundle
 from fastapi import Depends, HTTPException
 
 from ..._arango_sync import sync
@@ -313,6 +315,21 @@ def _server_explain(db: StandardDatabase) -> Callable[[str], str | None]:
     return explain
 
 
+def _maps_this_db(mapping: dict[str, Any] | None, db: StandardDatabase) -> bool:
+    """Whether *db* holds every collection *mapping* names.
+
+    A mapping for another database would make EXPLAIN refuse every candidate on a
+    mapped collection, which the model cannot repair; the regex check is kept then.
+    """
+    from ...nl2cypher._aql import _collect_known_collections
+    from ...nl2cypher.tenant_scope import _physical_mapping
+
+    named = _collect_known_collections(
+        MappingBundle(conceptual_schema={}, physical_mapping=_physical_mapping(mapping), metadata={})
+    )
+    return not named or named <= {c["name"] for c in sync(db.collections())}
+
+
 @app.post("/nl2aql")
 def nl2aql_endpoint(
     req: NL2AqlRequest,
@@ -338,13 +355,16 @@ def nl2aql_endpoint(
     )
 
     session = auth_session or bound_session
+    explain = None
+    if session is not None and _maps_this_db(req.mapping, session.db):
+        explain = _server_explain(session.db)
     t0 = time.perf_counter()
     result = nl_to_aql(
         req.question,
         mapping=req.mapping,
         tenant_context=tenant_ctx,
         cypher=req.cypher,
-        explain=_server_explain(session.db) if session is not None else None,
+        explain=explain,
     )
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
 

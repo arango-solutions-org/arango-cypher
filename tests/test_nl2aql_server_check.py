@@ -68,6 +68,17 @@ def test_direction_problems():
     )
 
 
+def test_a_loop_variable_bound_to_two_collections_is_not_checked():
+    # sibling subqueries reuse `c`; the traversal's `c` is customers, so INBOUND is right
+    reused = (
+        "LET a = (FOR c IN customers FOR o IN INBOUND c placed_by RETURN o) "
+        "LET b = (FOR c IN orders RETURN c) RETURN [a, b]"
+    )
+    assert _traversal_direction_problems(reused, ENDPOINTS) == []
+    same = "LET a = (FOR c IN customers FOR o IN OUTBOUND c placed_by RETURN o) LET b = (FOR c IN customers RETURN c) RETURN a"
+    assert "use INBOUND" in _traversal_direction_problems(same, ENDPOINTS)[0]
+
+
 def test_wrong_direction_is_sent_back_for_repair():
     provider = _Scripted(WRONG, RIGHT)
     assert nl_to_aql("orders per customer", mapping=BUNDLE, llm_provider=provider).aql == RIGHT
@@ -170,8 +181,15 @@ class _ExplainAQL(FakeAQL):
         return super().explain(query, all_plans, max_plans, opt_rules, bind_vars)
 
 
-def _db(error: Exception | None = None) -> Any:
-    db = FakeDb()
+class _ListingDb(FakeDb):
+    def collections(self) -> list[dict[str, Any]]:
+        return [{"name": n} for n in self._collections]
+
+
+def _db(
+    error: Exception | None = None, collections: tuple[str, ...] = ("orders", "customers", "placed_by")
+) -> Any:
+    db = _ListingDb({c: [] for c in collections})
     db.aql = _ExplainAQL(error)
     return db
 
@@ -192,10 +210,28 @@ class _Client:
         pass
 
 
-@pytest.mark.parametrize("connected", [True, False])
-def test_nl2aql_endpoint_checks_against_the_connected_database(monkeypatch, connected):
+WIRE_MAPPING = {
+    "physicalMapping": {
+        "entities": {"Order": {"collectionName": "orders"}, "Customer": {"collectionName": "customers"}},
+        "relationships": {"PLACED_BY": {"edgeCollectionName": "placed_by"}},
+    }
+}
+
+
+@pytest.mark.parametrize(
+    ("connected", "db_collections", "checked"),
+    [
+        (True, ("orders", "customers", "placed_by"), True),
+        # the mapping is for another database: EXPLAIN would 404 every candidate, so keep the regex check
+        (True, ("orders", "customers"), False),
+        (False, (), False),
+    ],
+)
+def test_nl2aql_endpoint_checks_against_the_connected_database(
+    monkeypatch, connected, db_collections, checked
+):
     svc = fresh_service()
-    db = _db()
+    db = _db(collections=db_collections)
     headers = {}
     if connected:
         svc._sessions["nl2aql-explain"] = svc._Session(token="nl2aql-explain", db=db, client=_Client())
@@ -222,11 +258,13 @@ def test_nl2aql_endpoint_checks_against_the_connected_database(monkeypatch, conn
 
     monkeypatch.setattr("arango_cypher.nl2cypher.nl_to_aql", _fake_nl_to_aql)
     try:
-        resp = TestClient(svc.app).post("/nl2aql", json={"question": "q", "mapping": {}}, headers=headers)
+        resp = TestClient(svc.app).post(
+            "/nl2aql", json={"question": "q", "mapping": WIRE_MAPPING}, headers=headers
+        )
     finally:
         svc._sessions.pop("nl2aql-explain", None)
     assert resp.status_code == 200, resp.text
-    if connected:
+    if checked:
         assert captured["explain"]("FOR o IN orders RETURN o") is None
         assert db.aql.explained == ["FOR o IN orders RETURN o"]
     else:
