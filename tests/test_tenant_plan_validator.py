@@ -428,6 +428,68 @@ class TestIndexNode:
             bind_vars={"tenantId": "tenant-A-uuid", "tenantKey": "tenant-A-uuid"},
         )
 
+    @staticmethod
+    def _eq(attr: str, rhs: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "type": "compare ==",
+            "subNodes": [
+                {
+                    "type": "attribute access",
+                    "name": attr,
+                    "subNodes": [{"type": "reference", "name": "doc", "id": 100}],
+                },
+                rhs,
+            ],
+        }
+
+    def _dnf(self, *branches: list[dict[str, Any]]) -> dict[str, Any]:
+        """An index condition as ArangoDB gives it: an OR of AND branches."""
+        return {"type": "n-ary or", "subNodes": [{"type": "n-ary and", "subNodes": b} for b in branches]}
+
+    def test_every_branch_of_an_index_condition_is_scoped(self) -> None:
+        tenant = self._eq("TENANT_HEX_ID", {"type": "parameter", "name": "tenantId"})
+        cond = self._dnf(
+            [tenant, self._eq("NAME", {"type": "value", "value": "x"})],
+            [tenant, self._eq("NAME", {"type": "value", "value": "y"})],
+        )
+        node = self._index_node(collection="Employee", condition=cond)
+        _call_validate(plan=_wrap_plan([_singleton_node(), node, _return_node(nid=3)]))
+
+    @pytest.mark.parametrize(
+        ("collection", "attr", "bind", "code"),
+        [
+            ("Employee", "TENANT_HEX_ID", "tenantId", "INDEX_MISSING_TENANT_PREDICATE"),
+            ("Tenant", "_key", "tenantKey", "TENANT_ROOT_UNCONSTRAINED"),
+        ],
+    )
+    def test_a_branch_without_the_tenant_predicate_is_rejected(
+        self, collection: str, attr: str, bind: str, code: str
+    ) -> None:
+        cond = self._dnf(
+            [self._eq(attr, {"type": "parameter", "name": bind})],
+            [self._eq("NAME", {"type": "value", "value": "x"})],
+        )
+        node = self._index_node(collection=collection, condition=cond)
+        plan = _wrap_plan([_singleton_node(), node, _return_node(nid=3)])
+        with pytest.raises(TenantScopeViolation) as exc_info:
+            _call_validate(plan=plan, bind_vars={"tenantId": "tenant-A-uuid", "tenantKey": "tenant-A-uuid"})
+        assert exc_info.value.code == code
+
+    def test_a_negated_tenant_predicate_is_rejected(self) -> None:
+        tenant = self._eq("TENANT_HEX_ID", {"type": "parameter", "name": "tenantId"})
+        cond = self._dnf([{"type": "logical not", "subNodes": [tenant]}])
+        node = self._index_node(collection="Employee", condition=cond)
+        plan = _wrap_plan([_singleton_node(), node, _return_node(nid=3)])
+        with pytest.raises(TenantScopeViolation) as exc_info:
+            _call_validate(plan=plan)
+        assert exc_info.value.code == "INDEX_MISSING_TENANT_PREDICATE"
+
+    def test_an_empty_or_is_rejected(self) -> None:
+        node = self._index_node(collection="Employee", condition={"type": "n-ary or", "subNodes": []})
+        plan = _wrap_plan([_singleton_node(), node, _return_node(nid=3)])
+        with pytest.raises(TenantScopeViolation):
+            _call_validate(plan=plan)
+
     def test_tenant_root_index_without_tenant_key_rejected(self) -> None:
         node = self._index_node(
             collection="Tenant",

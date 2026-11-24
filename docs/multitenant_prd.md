@@ -524,7 +524,7 @@ def validate(aql: str, bind_vars: dict, session) -> None:
 
 `_node_has_tenant_predicate` walks the plan to find `FILTER` / `IndexRangeNode` / `CalculationNode` children whose condition references the node's output variable and compares it to `@tenantId` (the bind-var form — literal predicates do not count and are rejected separately).
 
-`_index_covers_tenant` inspects `node["condition"]` looking for equality on the smartGraphAttribute keyed against `@tenantId`.
+`_index_covers_tenant` inspects `node["condition"]` looking for equality on the smartGraphAttribute keyed against `@tenantId`. ArangoDB gives that condition as an OR of AND branches, and every branch must carry the equality (one conjunct of an AND is enough; a `NOT` carries nothing). The `_key == @tenantKey` check for a tenant-root index reads the condition the same way (`_condition_requires`).
 
 `_traversal_constrained_to_tenant` checks:
 - The edge/vertex collections in `node["graph"]["vertexCollections"]` are all satellite or share the same smartGraphAttribute.
