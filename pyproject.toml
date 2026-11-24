@@ -92,7 +92,13 @@ analyzer = [
   # adds opt-in per-field redaction of values sent to an LLM; 0.20 marks a
   # list-valued attribute `multiValued` (CSI 1.2) for readers that take it.
   # The five symbols above are unchanged (signatures checked on 0.20.0).
-  "arangodb-schema-analyzer>=0.14.1,<0.21.0",
+  # Ceiling <0.23.0 (2026-11-24, raised together with arango-sparql-py): 0.21
+  # keeps metadata.statistics for polymorphic relationships and supertypes,
+  # annotates tenant scope on the no-LLM path, stops splitting an edge
+  # collection by a field that only repeats its endpoints, and adds CSI
+  # mapping ids and relational details; 0.22 writes full IRIs as JSON-LD ids.
+  # The five symbols above are unchanged (signatures checked on 0.22.0).
+  "arangodb-schema-analyzer>=0.14.1,<0.23.0",
 ]
 service = [
   # Headless service installs (ServiceMaker / Container Manager /
