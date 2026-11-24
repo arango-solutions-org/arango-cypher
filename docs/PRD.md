@@ -1077,10 +1077,16 @@ the read path infers it, failing closed when that is ambiguous). Translation
 refuses (`UNSUPPORTED`) the forms that used to write the wrong thing: two
 variables writing one collection (`SET a.x = 1, b.x = 2` with `a`, `b` both
 `:User`), a nested property (`SET n.a.b` wrote `n.b`), a variable-length
-relationship, a variable not bound by the first `MATCH` pattern (such as one
-from `OPTIONAL MATCH`), `SET n:Label` under a mapping that cannot store a second
-label, and a write that follows a `MATCH` with several pattern parts. Only the
-first would be applied, writing rows the others exclude. A write after several
+relationship, a variable that is not a node or relationship of the `MATCH`
+pattern, and `SET n:Label` under a mapping that cannot store a second label.
+The `MATCH` before a write compiles as any `MATCH` does
+(`_compile_match_from_nothing`, the compiler a `MATCH … RETURN` uses): every
+comma-separated part, a named path (`MATCH p = (a)-->(b) SET b.n = length(p)`),
+unnamed nodes and relationships under names of their own, a self-loop matched
+once, relationships kept distinct across hops, and a variable-length
+relationship's properties held on every edge; it used to be a copy that
+emitted an undefined `p`, re-declared an unnamed node's name, refused several
+parts, and checked the last edge only. A write after several
 reading clauses (`MATCH (n) OPTIONAL MATCH (n)-[r]->() REMOVE r.num RETURN n`,
 TCK Remove1 [6]; `MATCH (a) MATCH (b) SET a.x = b.x`) compiles them as a
 pipeline and writes after them (`translate_multi_reading_mutation`); a
