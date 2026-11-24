@@ -205,6 +205,19 @@ def test_server_explain_returns_query_refusals_and_raises_the_rest():
         _server_explain(_db(unavailable))("FOR o IN orders RETURN o")
 
 
+class _UnlistableDb(_ListingDb):
+    def collections(self) -> list[dict[str, Any]]:
+        raise ConnectionError("server unreachable")
+
+
+def test_maps_this_db_keeps_the_regex_check_when_listing_fails():
+    from arango_cypher.service.routes.nl import _maps_this_db
+
+    assert _maps_this_db(WIRE_MAPPING, _db()) is True
+    assert _maps_this_db(WIRE_MAPPING, _UnlistableDb({})) is False
+    assert _maps_this_db(None, _UnlistableDb({})) is True  # names no collection: nothing to list
+
+
 class _Client:
     def close(self) -> None:
         pass

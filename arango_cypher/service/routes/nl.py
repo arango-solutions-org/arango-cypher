@@ -327,7 +327,13 @@ def _maps_this_db(mapping: dict[str, Any] | None, db: StandardDatabase) -> bool:
     named = _collect_known_collections(
         MappingBundle(conceptual_schema={}, physical_mapping=_physical_mapping(mapping), metadata={})
     )
-    return not named or named <= {c["name"] for c in sync(db.collections())}
+    if not named:
+        return True
+    try:
+        held = {c["name"] for c in sync(db.collections())}
+    except Exception:  # noqa: BLE001 - listing failed: keep main's regex check rather than fail the request
+        return False
+    return named <= held
 
 
 @app.post("/nl2aql")
