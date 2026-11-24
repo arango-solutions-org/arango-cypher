@@ -429,10 +429,12 @@ Walk every AQL AST node:
   FOR v, e, p IN ... <min>..<max> ANY|OUTBOUND|INBOUND <start> <graph>
     restrict <graph> to { vertexCollections: [<satellite + tenant coll>],
                           edgeCollections:   [<same>] }
-    add OPTIONS { prune: v.<denormField> != @tenantId }
-    (prune halts the traversal at any node that left the tenant;
-    required because ANY-direction traversals can otherwise visit
-    satellite-linked nodes that belong to other tenants)
+    add PRUNE v.<field> != @tenantId          (OR-ed into an existing PRUNE)
+    and FILTER v.<field> == @tenantId         (after any OPTIONS {...})
+    (the PRUNE halts the traversal at a vertex of another tenant, and
+    the FILTER keeps that vertex out of the result: a PRUNE alone still
+    yields the vertex it stops at, and a FILTER alone still walks
+    through other tenants' vertices, so a path would carry them)
 
   LET x = (<subquery>)
     recurse with the same pass; the subquery shares bind-var scope
@@ -526,9 +528,7 @@ def validate(aql: str, bind_vars: dict, session) -> None:
 
 `_index_covers_tenant` inspects `node["condition"]` looking for equality on the smartGraphAttribute keyed against `@tenantId`. ArangoDB gives that condition as an OR of AND branches, and every branch must carry the equality (one conjunct of an AND is enough; a `NOT` carries nothing). The `_key == @tenantKey` check for a tenant-root index reads the condition the same way (`_condition_requires`).
 
-`_traversal_constrained_to_tenant` checks:
-- The edge/vertex collections in `node["graph"]["vertexCollections"]` are all satellite or share the same smartGraphAttribute.
-- The traversal's `options.prune` references `@tenantId`, OR every vertex collection in play is satellite, OR the traversal is within a disjoint SmartGraph whose attribute is enforced at storage.
+A traversal is accepted when every vertex collection in play is satellite, OR it walks a disjoint SmartGraph whose attribute is enforced at storage, OR it keeps to the tenant (`traversal_confined_to_tenant`): its PRUNE (in a real plan, the node's `expression`) holds for every vertex whose tenant field is not the session tenant, and its vertex condition (the FILTER the optimizer fuses into the node, every branch) or a FILTER expression requires that field to be the session tenant. The tenant-scoped vertex collections must share one tenant field. A real plan names its vertex collections in `vertexCollections` and its graph in `graph`; both layers read them through `traversal_vertex_collections` / `traversal_graph_name`.
 
 ### 8.3 What makes this the boundary
 
@@ -558,7 +558,7 @@ The key test suite — more important than any other part of this PRD — lives 
 - Hand-crafted AQL with a literal-string tenant predicate → rejected (not a bind-var).
 - Hand-crafted AQL with `@tenantId` but the value mismatches the session → rejected.
 - Hand-crafted AQL with a correctly-constrained index lookup → accepted.
-- Traversal over `ANY` with a satellite collection in play but no `prune` → rejected.
+- Traversal over `ANY` with a satellite collection in play but no `prune` → rejected; with only the PRUNE, or only the FILTER → rejected; with both → accepted.
 - Traversal over `OUTBOUND` on a disjoint-smartgraph named graph → accepted even without explicit `prune` (storage enforces it; validator recognises the `graphName`).
 - Subquery that scans a tenant-scoped collection without a filter → rejected.
 - `COUNT { FOR c IN TenantCollection ... }` without a filter → rejected.

@@ -504,78 +504,114 @@ class TestTraversal:
         assert out == aql
         assert changes == []
 
+    def _asset_traversal(self, aql: str, **node: Any) -> str:
+        plan = _wrap_plan(
+            [
+                _singleton_node(),
+                {
+                    **_traversal_node(nid=3, vertex_outvar="v", edge_outvar=None, graph_name="AssetRefGraph"),
+                    **node,
+                },
+                _return_node(nid=4),
+            ]
+        )
+        out, _, changes = _inject(aql=aql, plan=plan)
+        if out != aql:
+            assert any("PRUNE" in c and "FILTER" in c for c in changes)
+        return out
+
     def test_traversal_any_with_satellite_prune_added(self) -> None:
-        """Traversal over a non-disjoint graph whose vertex
-        collections include a TENANT_SCOPED entity (Asset). The
-        rewriter must attach ``OPTIONS { prune: v.<field> != @tenantId }``."""
+        """Traversal over a non-disjoint graph whose vertex collections
+        include a TENANT_SCOPED entity (Asset): it stops at, and does not
+        yield, a vertex of another tenant."""
         aql = "FOR p IN Product FILTER p._key == @prodKey FOR v, e IN 1..2 ANY p AssetRefGraph RETURN v"
         plan = _wrap_plan(
             [
                 _singleton_node(),
-                _index_node(
-                    nid=2,
-                    collection="Product",
-                    outvar="p",
-                    condition=None,
-                ),
-                _traversal_node(
-                    nid=3,
-                    vertex_outvar="v",
-                    edge_outvar="e",
-                    graph_name="AssetRefGraph",
-                ),
-                _return_node(nid=4),
-            ]
-        )
-        out, _, changes = _inject(
-            aql=aql,
-            plan=plan,
-            bind_vars={"tenantId": "tenant-A-uuid", "prodKey": "p1"},
-        )
-        assert "OPTIONS { prune:" in out
-        assert "v.TENANT_HEX_ID != @tenantId" in out
-        # AssetRefGraph contains the satellite Product collection too;
-        # the field we picked must be the one drawn from the TENANT_SCOPED
-        # member (Asset → TENANT_HEX_ID).
-        assert any("prune" in c for c in changes)
-
-    def test_traversal_prune_already_references_tenant_no_dup(self) -> None:
-        """If the traversal already carries ``options.prune`` against
-        ``@tenantId``, the rewriter must no-op."""
-        aql = "FOR p IN Product FILTER p._key == @prodKey FOR v IN 1..2 ANY p AssetRefGraph OPTIONS { prune: v.TENANT_HEX_ID != @tenantId } RETURN v"
-        plan = _wrap_plan(
-            [
-                _singleton_node(),
                 _index_node(nid=2, collection="Product", outvar="p", condition=None),
-                _traversal_node(
-                    nid=3,
-                    vertex_outvar="v",
-                    edge_outvar=None,
-                    graph_name="AssetRefGraph",
-                    prune={
-                        "type": "compare !=",
-                        "subNodes": [
-                            {
-                                "type": "attribute access",
-                                "name": "TENANT_HEX_ID",
-                                "subNodes": [{"type": "reference", "name": "v", "id": 110}],
-                            },
-                            {"type": "parameter", "name": "tenantId"},
-                        ],
-                    },
-                ),
+                _traversal_node(nid=3, vertex_outvar="v", edge_outvar="e", graph_name="AssetRefGraph"),
                 _return_node(nid=4),
             ]
         )
         out, _, changes = _inject(
-            aql=aql,
-            plan=plan,
-            bind_vars={"tenantId": "tenant-A-uuid", "prodKey": "p1"},
+            aql=aql, plan=plan, bind_vars={"tenantId": "tenant-A-uuid", "prodKey": "p1"}
+        )
+        # AssetRefGraph contains the satellite Product collection too; the
+        # field must be the TENANT_SCOPED member's (Asset → TENANT_HEX_ID).
+        assert out == (
+            "FOR p IN Product FILTER p._key == @prodKey FOR v, e IN 1..2 ANY p AssetRefGraph \n"
+            "  PRUNE v.TENANT_HEX_ID != @tenantId\n"
+            "  FILTER v.TENANT_HEX_ID == @tenantId RETURN v"
+        )
+        assert changes == [
+            "Added PRUNE v.TENANT_HEX_ID != @tenantId and FILTER v.TENANT_HEX_ID == @tenantId to traversal over v"
+        ]
+
+    def test_an_existing_prune_is_kept_beside_the_tenant_boundary(self) -> None:
+        out = self._asset_traversal(
+            'FOR p IN Product FOR v IN 1..2 ANY p AssetRefGraph PRUNE v.name == "x" RETURN v'
+        )
+        assert out == (
+            "FOR p IN Product FOR v IN 1..2 ANY p AssetRefGraph "
+            'PRUNE v.TENANT_HEX_ID != @tenantId OR ( v.name == "x") \n'
+            "  FILTER v.TENANT_HEX_ID == @tenantId RETURN v"
+        )
+
+    def test_the_prune_goes_before_options_and_the_filter_after(self) -> None:
+        out = self._asset_traversal(
+            'FOR p IN Product FOR v IN 1..2 ANY p AssetRefGraph PRUNE v.n == ")" OPTIONS {order: "bfs"} RETURN v'
+        )
+        assert out == (
+            "FOR p IN Product FOR v IN 1..2 ANY p AssetRefGraph "
+            'PRUNE v.TENANT_HEX_ID != @tenantId OR ( v.n == ")") OPTIONS {order: "bfs"}\n'
+            "  FILTER v.TENANT_HEX_ID == @tenantId RETURN v"
+        )
+        out = self._asset_traversal(
+            'FOR p IN Product FOR v IN 1..2 ANY p AssetRefGraph OPTIONS {order: "bfs"} RETURN v'
+        )
+        assert out == (
+            "FOR p IN Product FOR v IN 1..2 ANY p AssetRefGraph \n"
+            '  PRUNE v.TENANT_HEX_ID != @tenantId OPTIONS {order: "bfs"}\n'
+            "  FILTER v.TENANT_HEX_ID == @tenantId RETURN v"
+        )
+
+    def test_traversal_already_bounded_by_the_tenant_no_dup(self) -> None:
+        """A second pass sees the PRUNE and the fused FILTER, with the
+        tenant resolved as its own EXPLAIN resolves it, and changes nothing."""
+
+        def field(op: str) -> dict[str, Any]:
+            return {
+                "type": op,
+                "subNodes": [
+                    {
+                        "type": "attribute access",
+                        "name": "TENANT_HEX_ID",
+                        "subNodes": [{"type": "reference", "name": "v", "id": 110}],
+                    },
+                    {"type": "value", "value": "tenant-A-uuid"},
+                ],
+            }
+
+        aql = (
+            "FOR p IN Product FOR v IN 1..2 ANY p AssetRefGraph \n  PRUNE v.TENANT_HEX_ID != @tenantId"
+            "\n  FILTER v.TENANT_HEX_ID == @tenantId RETURN v"
+        )
+        out = self._asset_traversal(
+            aql,
+            expression=field("compare !="),
+            condition={
+                "type": "n-ary or",
+                "subNodes": [{"type": "n-ary and", "subNodes": [field("compare ==")]}],
+            },
         )
         assert out == aql
-        # Country/Product satellite enumerate may still be picked up,
-        # but the traversal-specific change list must be empty.
-        assert all("prune" not in c for c in changes)
+
+    def test_a_prune_that_assigns_a_variable_is_refused(self) -> None:
+        with pytest.raises(AqlRewriteError) as exc:
+            self._asset_traversal(
+                "FOR p IN Product FOR v IN 1..2 ANY p AssetRefGraph PRUNE c = v.n == 1 RETURN v"
+            )
+        assert exc.value.code == "UNCONSTRAINED_TRAVERSAL"
 
     def test_traversal_all_satellite_no_rewrite(self) -> None:
         """Pure satellite traversal needs no prune — Layer 5 accepts

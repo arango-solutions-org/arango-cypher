@@ -670,14 +670,6 @@ class _PlanWalker:
                 return True
         return False
 
-    def _graph_vertex_collections(self, graph_name: str) -> list[str]:
-        for g in self.sharding_profile.get("graphs") or []:
-            if isinstance(g, dict) and g.get("name") == graph_name:
-                verts = g.get("vertexCollections") or g.get("vertex_collections") or []
-                if isinstance(verts, list):
-                    return [v for v in verts if isinstance(v, str)]
-        return []
-
     def _role_of_collection(self, collection: str) -> EntityTenantRole | None:
         entity = self._entity_of(collection)
         if entity is None:
@@ -722,7 +714,7 @@ class _PlanWalker:
                 if isinstance(coll, str) and self._is_tenant_touching_collection(coll):
                     return True
             elif t == "TraversalNode":
-                for coll in self._traversal_vertex_collections(node):
+                for coll in traversal_vertex_collections(node, self.sharding_profile):
                     if self._is_tenant_touching_collection(coll):
                         return True
             elif t == "SubqueryNode":
@@ -911,15 +903,15 @@ class _PlanWalker:
         if involved and not any(self._is_tenant_touching_collection(c) for c in involved):
             return
         # 1) Every vertex collection in play is satellite → OK.
-        vertex_colls = self._traversal_vertex_collections(node)
+        vertex_colls = traversal_vertex_collections(node, self.sharding_profile)
         if vertex_colls and all(self._layout_kind(c) == "satellite" for c in vertex_colls):
             return
-        # 2) prune references @tenantId → OK.
-        if _traversal_prune_uses_tenant(node):
+        # 2) The graph is a disjoint smartgraph → OK.
+        graph_name = traversal_graph_name(node)
+        if graph_name and self._is_disjoint_smartgraph(graph_name):
             return
-        # 3) graphName resolves to a disjoint smartgraph → OK.
-        graph_name = node.get("graphName")
-        if isinstance(graph_name, str) and graph_name and self._is_disjoint_smartgraph(graph_name):
+        # 3) It prunes at, and filters out, every vertex of another tenant → OK.
+        if self._traversal_confined(node, vertex_colls):
             return
         violation = TenantScopeViolation(
             code="UNCONSTRAINED_TRAVERSAL",
@@ -927,7 +919,8 @@ class _PlanWalker:
                 "TraversalNode "
                 f"graph={graph_name!r} vertex_collections={vertex_colls!r}"
                 " is not constrained to the session tenant (no satellite-only "
-                "path, no prune on @tenantId, no disjoint smartgraph)"
+                "path, no disjoint smartgraph, no PRUNE <v>.<field> != @tenantId "
+                "with FILTER <v>.<field> == @tenantId)"
             ),
             **digests,
         )
@@ -935,36 +928,33 @@ class _PlanWalker:
         raise violation
 
     def _traversal_all_collections(self, node: dict[str, Any]) -> list[str]:
-        """All vertex + edge collections a TraversalNode reads.
-
-        Reads the node's top-level ``vertexCollections`` / ``edgeCollections``
-        lists (the anonymous-traversal shape real ArangoDB emits, where
-        ``node["graph"]`` is a *list* of edge collection names rather than a
-        dict) and falls back to the named-graph helper. Used only to decide
-        whether the traversal touches any tenant-scoped collection.
-        """
+        """All vertex + edge collections a TraversalNode reads. Used only to
+        decide whether the traversal touches any tenant-scoped collection."""
         out: list[str] = []
-        for key in ("vertexCollections", "edgeCollections"):
-            v = node.get(key)
-            if isinstance(v, list):
-                out.extend(c for c in v if isinstance(c, str))
-        out.extend(self._traversal_vertex_collections(node))
-        # Deduplicate while preserving order.
+        edges = node.get("edgeCollections")
+        if isinstance(edges, list):
+            out.extend(c for c in edges if isinstance(c, str))
+        out.extend(traversal_vertex_collections(node, self.sharding_profile))
         return list(dict.fromkeys(out))
 
-    def _traversal_vertex_collections(self, node: dict[str, Any]) -> list[str]:
-        # The plan exposes the resolved vertex collections under
-        # ``vertices`` (per-step) or under ``graph.vertexCollections``
-        # (named-graph case).
-        graph = node.get("graph") or {}
-        if isinstance(graph, dict):
-            verts = graph.get("vertexCollections") or graph.get("vertex_collections")
-            if isinstance(verts, list):
-                return [v for v in verts if isinstance(v, str)]
-        graph_name = node.get("graphName")
-        if isinstance(graph_name, str) and graph_name:
-            return self._graph_vertex_collections(graph_name)
-        return []
+    def _traversal_confined(self, node: dict[str, Any], vertex_colls: list[str]) -> bool:
+        """Whether the traversal keeps to the session tenant
+        (:func:`traversal_confined_to_tenant`) on the tenant field its
+        tenant-scoped vertex collections share."""
+        vertex_var = (node.get("vertexOutVariable") or {}).get("name")
+        fields = {self._tenant_field_for(c) for c in vertex_colls if self._is_tenant_touching_collection(c)}
+        if not isinstance(vertex_var, str) or len(fields) != 1:
+            return False
+        (field_name,) = fields
+        if not field_name:
+            return False
+        return traversal_confined_to_tenant(
+            node,
+            vertex_var=vertex_var,
+            tenant_field=field_name,
+            sentinel=self.tenant_sentinel,
+            filter_exprs=[_expr(calc) for calc in self._calc_by_outvar.values()],
+        )
 
     # ---- Predicate detection ---------------------------------------------
 
@@ -1363,29 +1353,114 @@ def _condition_keyed_by_tenant_key(cond: Any, *, outvar: str) -> bool:
     return _condition_requires(cond, key_eq)
 
 
-def _traversal_prune_uses_tenant(node: dict[str, Any]) -> bool:
-    """TraversalNode's ``options.prune`` references ``@tenantId``."""
-    options = node.get("options") or {}
-    if not isinstance(options, dict):
+def traversal_graph_name(node: dict[str, Any]) -> str | None:
+    """The named graph a TraversalNode walks: ``graph`` is its name in a real
+    plan (a list of edge collections for an anonymous traversal)."""
+    for key in ("graphName", "graph"):
+        name = node.get(key)
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
+def traversal_vertex_collections(node: dict[str, Any], sharding_profile: dict[str, Any] | None) -> list[str]:
+    """The vertex collections a TraversalNode may reach.
+
+    A real plan lists them at the node's top level (``vertexCollections``,
+    which for an anonymous traversal also names its edge collections; those
+    are dropped). Otherwise they come from ``graph.vertexCollections``, from
+    the named graph in *sharding_profile*, or from the profile's graphs that
+    hold the traversal's edge collections.
+    """
+    raw_edges = node.get("edgeCollections")
+    edges = {c for c in raw_edges if isinstance(c, str)} if isinstance(raw_edges, list) else set()
+    top = node.get("vertexCollections")
+    if isinstance(top, list) and top:
+        return [c for c in top if isinstance(c, str) and c not in edges]
+    graph = node.get("graph")
+    if isinstance(graph, dict):
+        verts = graph.get("vertexCollections") or graph.get("vertex_collections")
+        if isinstance(verts, list):
+            return [v for v in verts if isinstance(v, str)]
+    graph_name = traversal_graph_name(node)
+    out: list[str] = []
+    for g in (sharding_profile or {}).get("graphs") or []:
+        if not isinstance(g, dict):
+            continue
+        g_edges = g.get("edgeCollections") or g.get("edge_collections") or []
+        if (graph_name and g.get("name") == graph_name) or (not graph_name and edges & set(g_edges)):
+            verts = g.get("vertexCollections") or g.get("vertex_collections") or []
+            out.extend(v for v in verts if isinstance(v, str))
+    return list(dict.fromkeys(out))
+
+
+def traversal_confined_to_tenant(
+    node: dict[str, Any],
+    *,
+    vertex_var: str,
+    tenant_field: str,
+    sentinel: str | None,
+    filter_exprs: list[dict[str, Any]],
+) -> bool:
+    """Whether a TraversalNode only reaches and yields the session tenant's
+    vertices: its PRUNE holds for every vertex whose *tenant_field* is not
+    the tenant, so the traversal never continues past one, and the vertex
+    is required to be the tenant's, by the condition the optimizer fused
+    into the node (every branch) or by a FILTER expression in the plan.
+
+    A PRUNE alone still yields the vertex it stops at, and a FILTER alone
+    still walks through other tenants' vertices to reach the tenant's, so
+    a path would carry them: both are needed. A real plan holds the PRUNE
+    in the node's ``expression``; ``options.prune`` is read for hand-built
+    plans.
+    """
+    prune = node.get("expression")
+    if not isinstance(prune, dict):
+        options = node.get("options")
+        prune = options.get("prune") if isinstance(options, dict) else None
+    if not _holds_outside_tenant(prune, var_name=vertex_var, attr=tenant_field, sentinel=sentinel):
         return False
-    prune = options.get("prune")
-    if isinstance(prune, str):
-        return "@tenantId" in prune or "@@tenantId" in prune
-    if isinstance(prune, dict):
-        return _expr_references_tenant_bindvar(prune)
-    return False
+
+    def tenant_eq(cond: dict[str, Any]) -> bool:
+        return _eq_scopes_tenant(cond, var_name=vertex_var, attr=tenant_field, sentinel=sentinel)
+
+    if _condition_requires(node.get("condition"), tenant_eq):
+        return True
+    return any(
+        _expr_scopes_tenant(expr, var_name=vertex_var, attr=tenant_field, sentinel=sentinel)
+        for expr in filter_exprs
+        if expr
+    )
 
 
-def _expr_references_tenant_bindvar(expr: dict[str, Any]) -> bool:
-    """Recursive: does *expr* contain a ``parameter`` node named
-    ``tenantId``?"""
+def _holds_outside_tenant(expr: Any, *, var_name: str, attr: str, sentinel: str | None) -> bool:
+    """Whether *expr* is true for every vertex whose ``<var>.<attr>`` is not
+    the session tenant: ``<var>.<attr> != @tenantId``, or an OR with such a
+    branch, or an AND of such parts. Anything else proves nothing."""
     if not isinstance(expr, dict):
         return False
-    if _is_bindvar_named(expr, "tenantId"):
-        return True
-    for sub in expr.get("subNodes") or []:
-        if isinstance(sub, dict) and _expr_references_tenant_bindvar(sub):
-            return True
+    if expr.get("type") == "compare !=":
+        subs = expr.get("subNodes") or []
+        if len(subs) == 2 and all(isinstance(sub, dict) for sub in subs):
+            lhs, rhs = subs
+            return (
+                _is_attribute_access_on(lhs, var_name=var_name, attr=attr)
+                and _is_tenant_value_operand(rhs, sentinel=sentinel)
+            ) or (
+                _is_attribute_access_on(rhs, var_name=var_name, attr=attr)
+                and _is_tenant_value_operand(lhs, sentinel=sentinel)
+            )
+        return False
+    subs = [sub for sub in expr.get("subNodes") or []]
+    kind = expr.get("type")
+    if kind in {"n-ary or", "logical or"}:
+        return any(
+            _holds_outside_tenant(sub, var_name=var_name, attr=attr, sentinel=sentinel) for sub in subs
+        )
+    if kind in {"n-ary and", "logical and"}:
+        return bool(subs) and all(
+            _holds_outside_tenant(sub, var_name=var_name, attr=attr, sentinel=sentinel) for sub in subs
+        )
     return False
 
 

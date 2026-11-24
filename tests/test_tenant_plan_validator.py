@@ -601,39 +601,135 @@ class TestTraversalNode:
             session=_FakeSession(tenant_id=None),
         )
 
-    def test_traversal_with_string_prune_on_tenant_id_accepted(self) -> None:
-        plan = _wrap_plan(
-            [
-                _singleton_node(),
-                self._traversal(
-                    vertex_collections=["Employee"],
-                    prune="v.TENANT_HEX_ID != @tenantId",
-                ),
-                _return_node(nid=3),
-            ]
-        )
-        _call_validate(plan=plan)
+    # The shape a real EXPLAIN gives ``FOR v IN 1..3 OUTBOUND s LINK PRUNE
+    # <prune> FILTER <filter>``: the PRUNE in ``expression``, the FILTER
+    # fused into ``condition`` as an OR of AND branches, and the vertex
+    # collections at the top level. A real plan has the tenant resolved to
+    # the per-call sentinel; with no EXPLAIN only ``@tenantId`` counts.
 
-    def test_traversal_with_expr_prune_on_tenant_id_accepted(self) -> None:
-        prune_expr = {
-            "type": "compare !=",
+    @staticmethod
+    def _field(op: str, value: Any, attr: str = "TENANT_HEX_ID") -> dict[str, Any]:
+        return {
+            "type": op,
             "subNodes": [
-                {
-                    "type": "attribute access",
-                    "name": "TENANT_HEX_ID",
-                    "subNodes": [{"type": "reference", "name": "v"}],
-                },
-                {"type": "parameter", "name": "tenantId"},
+                {"type": "attribute access", "name": attr, "subNodes": [{"type": "reference", "name": "v"}]},
+                value,
             ],
         }
-        plan = _wrap_plan(
-            [
-                _singleton_node(),
-                self._traversal(vertex_collections=["Employee"], prune=prune_expr),
-                _return_node(nid=3),
-            ]
+
+    TENANT = {"type": "parameter", "name": "tenantId"}
+    OTHER = {"type": "value", "value": "tenant-B-uuid"}
+
+    def _real(self, *, prune: Any = None, condition: Any = None, graph: Any = None) -> dict[str, Any]:
+        node: dict[str, Any] = {
+            "type": "TraversalNode",
+            "id": 2,
+            "graph": graph if graph is not None else ["TENANTOWNSASSET"],
+            "vertexCollections": ["Asset", "TENANTOWNSASSET"],
+            "edgeCollections": ["TENANTOWNSASSET"],
+            "vertexOutVariable": {"name": "v", "id": 0},
+            "options": {},
+        }
+        if prune is not None:
+            node["expression"] = prune
+        if condition is not None:
+            node["condition"] = condition
+        return node
+
+    @staticmethod
+    def _dnf(*branches: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"type": "n-ary or", "subNodes": [{"type": "n-ary and", "subNodes": b} for b in branches]}
+
+    def _validate(self, node: dict[str, Any], *extra: dict[str, Any]) -> None:
+        _call_validate(
+            plan=_wrap_plan([_singleton_node(), node, *extra, _return_node(nid=9)]),
+            bind_vars={"tenantId": "tenant-A-uuid"},
         )
-        _call_validate(plan=plan)
+
+    def test_a_traversal_that_prunes_and_filters_on_the_tenant_is_accepted(self) -> None:
+        self._validate(
+            self._real(
+                prune=self._field("compare !=", self.TENANT),
+                condition=self._dnf([self._field("compare ==", self.TENANT)]),
+            )
+        )
+
+    def test_a_tenant_filter_left_as_a_calculation_counts(self) -> None:
+        calc = {
+            "type": "CalculationNode",
+            "id": 3,
+            "outVariable": {"name": "6", "id": 6},
+            "expression": self._field("compare ==", {"type": "parameter", "name": "tenantId"}),
+        }
+        self._validate(
+            self._real(prune=self._field("compare !=", {"type": "parameter", "name": "tenantId"})), calc
+        )
+
+    def test_a_prune_that_stops_at_more_than_other_tenants_is_accepted(self) -> None:
+        stops_more = {
+            "type": "logical or",
+            "subNodes": [
+                self._field("compare !=", self.TENANT),
+                self._field("compare ==", self.OTHER, "NAME"),
+            ],
+        }
+        self._validate(
+            self._real(prune=stops_more, condition=self._dnf([self._field("compare ==", self.TENANT)]))
+        )
+
+    @pytest.mark.parametrize(
+        ("prune", "condition"),
+        [
+            # PRUNE alone yields the first vertex of another tenant.
+            ("tenant !=", None),
+            # FILTER alone walks through other tenants' vertices.
+            (None, "tenant =="),
+            # A PRUNE that only mentions the tenant.
+            ("tenant ==", "tenant =="),
+            ("tenant != AND name", "tenant =="),
+            ("string", "tenant =="),
+            # A filter with a branch that is not the tenant's.
+            ("tenant !=", "tenant == OR name"),
+            ("tenant !=", "other =="),
+        ],
+    )
+    def test_a_traversal_that_can_reach_or_yield_another_tenant_is_rejected(
+        self, prune: str | None, condition: str | None
+    ) -> None:
+        name = self._field("compare ==", {"type": "value", "value": "x"}, "NAME")
+        prunes = {
+            "tenant !=": self._field("compare !=", self.TENANT),
+            "tenant ==": self._field("compare ==", self.TENANT),
+            "tenant != AND name": {
+                "type": "logical and",
+                "subNodes": [self._field("compare !=", self.TENANT), name],
+            },
+        }
+        conditions = {
+            "tenant ==": self._dnf([self._field("compare ==", self.TENANT)]),
+            "tenant == OR name": self._dnf([self._field("compare ==", self.TENANT)], [name]),
+            "other ==": self._dnf([self._field("compare ==", self.OTHER)]),
+        }
+        node = self._real(
+            prune=prunes.get(prune) if prune else None,
+            condition=conditions.get(condition) if condition else None,
+        )
+        if prune == "string":
+            node["options"] = {"prune": "v.TENANT_HEX_ID != @tenantId"}
+        with pytest.raises(TenantScopeViolation) as exc_info:
+            self._validate(node)
+        assert exc_info.value.code == "UNCONSTRAINED_TRAVERSAL"
+
+    def test_a_named_disjoint_smartgraph_in_a_real_plan_is_accepted(self) -> None:
+        node = self._real(graph="TenantGraph")
+        node["vertexCollections"] = ["Tenant", "Employee", "Asset"]
+        self._validate(node)
+
+    def test_satellite_vertex_collections_in_a_real_plan_are_accepted(self) -> None:
+        node = self._real(graph=["COUNTRYEDGE"])
+        node["vertexCollections"] = ["Country"]
+        node["edgeCollections"] = ["COUNTRYEDGE"]
+        self._validate(node)
 
 
 # ---------------------------------------------------------------------------
