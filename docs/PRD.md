@@ -580,8 +580,14 @@ names that clash with no other bind variable (`_with_collection_refs` in
 String literals are copied to AQL with their quotes, since both languages end
 a string in the same place, but the escapes AQL reads differently are
 rewritten: `\N`, `\T`, `\B`, `\F`, `\R` (plain letters in AQL) become their
-lowercase forms, and the eight-digit `\UXXXXXXXX` (absent from AQL) becomes a
-`\u` surrogate pair (`_aql_string_from_cypher`).
+lowercase forms, the eight-digit `\UXXXXXXXX` (absent from AQL) becomes a
+`\u` surrogate pair, and a four-digit `\UXXXX` (the grammar admits it: `\U`
+takes eight digits when eight follow) becomes `\uXXXX` (`_aql_string_from_cypher`).
+`\u` always takes four digits. A literal folded at translate time is read by
+the same rules (`literals.cypher_string_value`): a four-digit escape is a UTF-16
+code unit, so `\uD83D\uDE00` is one character, as in Neo4j. Both paths refuse
+(`UNSUPPORTED`) a code point past U+10FFFF and a surrogate without its other
+half, which is no character and which ArangoDB rejects in a bind variable.
 
 The translator core lives in `arango_cypher/_translate_v0/` (`core.py`,
 `writes.py` with the write translators `write_create.py`, `write_merge.py`,
